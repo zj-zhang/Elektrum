@@ -142,14 +142,15 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
 
     def _build_outputs(self, activity):
         # build outputs
+        # TODO: change the hard-coded output
         if len(activity) > 1:
-            output = Dense(units=1, activation="sigmoid",
+            output = Dense(units=1, activation="linear",
                            kernel_initializer='zeros', name="output")(
                 Concatenate()(activity))
         else:
             output = Dense(
                 units=1,
-                activation="sigmoid",
+                activation="linear",
                 kernel_initializer='zeros',
                 name="output")(
                 activity[0])
@@ -182,7 +183,9 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
             output = self._build_outputs(activity)
             self.model = Model([inputs_op[j] for j in inputs_op], output)
             self.model.compile(
-                loss='binary_crossentropy',
+                # TODO
+                #loss='binary_crossentropy',
+                loss='mse',
                 optimizer=optimizer
             )
         self.layer_dict = {l.name: l for l in self.model.layers}
