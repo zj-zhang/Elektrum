@@ -52,13 +52,15 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
         assert len(rate_pwm_len) == len(self.kinn.rates)
         for pwm_len, rate in zip(*[rate_pwm_len, self.kinn.rates]):
             assert isinstance(pwm_len, int)
-            assert pwm_len <= rate.input_range[1] - rate.input_range[0], ValueError(
-                f"pwm_len {pwm_len} must be smaller than rate input range {rate.input_range[0]} - {rate.input_range[1]}")
+            #assert pwm_len <= rate.input_range[1] - rate.input_range[0], ValueError(
+            #    f"pwm_len {pwm_len} must be smaller than rate input range {rate.input_range[0]} - {rate.input_range[1]}")
         self.rate_pwm_len = rate_pwm_len
         # start new session
         self.session = session
         if self.session is None:
             self._reset_session()
+        else:
+            tf.keras.backend.set_session(self.session)
 
         # placeholders
         self.n_channels = n_channels
@@ -97,6 +99,7 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
                            activation="linear",
                            use_bias=False,
                            kernel_initializer='zeros',
+                           padding="same",
                            name="conv_%s" % name)(
                         inputs_op[seq_range]
                     )
