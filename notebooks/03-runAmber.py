@@ -15,7 +15,6 @@
 from src.kinetic_model import KineticModel, modelSpace_to_modelParams
 from src.neural_network_builder import KineticNeuralNetworkBuilder
 
-
 # In[3]:
 
 
@@ -68,47 +67,49 @@ from amber.architect import ModelSpace, Operation
 kinn_model_space = ModelSpace.from_dict([
     # k_01, sol -> open R-loop
     [dict(Layer_type='conv1d', filters=1, SOURCE='0', TARGET='1', 
-          kernel_size=1,
+          kernel_size=pmbga.Categorical(choices=[1,2,3], prior_cnt=[1]*3),
           EDGE=1,
           RANGE_ST=pmbga.Categorical(choices=[0,1,2,3,4], prior_cnt=[1]*5),
           RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1), 
      )],
     # k_10, open R-loop -> sol
     [dict(Layer_type='conv1d', filters=1, SOURCE='1', TARGET='0', 
-          kernel_size=1,
+          kernel_size=pmbga.Categorical(choices=[1,2,3], prior_cnt=[1]*3),
           EDGE=1,
           RANGE_ST=pmbga.Categorical(choices=[0,1,2,3,4], prior_cnt=[1]*5),
           RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1),          
      )],
     # k_12, open R-loop -> intermediate R-loop
     [dict(Layer_type='conv1d', filters=1, SOURCE='1', TARGET='2', 
-          kernel_size=1, 
+          kernel_size=pmbga.Categorical(choices=[1,2,3], prior_cnt=[1]*3), 
           EDGE=1,
           RANGE_ST=pmbga.Categorical(choices=[5,6,7,8,9,10], prior_cnt=[1]*6),
           RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1), 
      )],
     # k_21, intermediate R-loop -> open R-loop
     [dict(Layer_type='conv1d', filters=1, SOURCE='2', TARGET='1', 
-          kernel_size=1, 
+          kernel_size=pmbga.Categorical(choices=[1,2,3], prior_cnt=[1]*3), 
           EDGE=1,
           RANGE_ST=pmbga.Categorical(choices=[5,6,7,8,9,10], prior_cnt=[1]*6),
           RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1),             
      )],
     # k_23, intermediate R-loop -> closed R-loop
     [dict(Layer_type='conv1d', filters=1, SOURCE='2', TARGET='3', 
-          kernel_size=1, 
+          kernel_size=pmbga.Categorical(choices=[1,2,3], prior_cnt=[1]*3), 
           EDGE=1,
           RANGE_ST=pmbga.Categorical(choices=[11,12,13,14,15,16,17,18], prior_cnt=[1]*8),
           RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1),     
      )],
     # k_32
-    [dict(Layer_type='conv1d', kernel_size=1, filters=1, SOURCE='3', TARGET='2', 
+    [dict(Layer_type='conv1d', filters=1, SOURCE='3', TARGET='2', 
+          kernel_size=pmbga.Categorical(choices=[1,2,3], prior_cnt=[1]*3),
           EDGE=1,        
           RANGE_ST=pmbga.Categorical(choices=[11,12,13,14,15,16,17,18], prior_cnt=[1]*8),
           RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1),          
      )],
     # k_30
-    [dict(Layer_type='conv1d', kernel_size=1, filters=1, SOURCE='3', TARGET='0', 
+    [dict(Layer_type='conv1d', filters=1, SOURCE='3', TARGET='0', 
+          kernel_size=pmbga.Categorical(choices=[1,2,3,4,5,6], prior_cnt=[1]*6),
           EDGE=1,
           RANGE_ST=pmbga.Categorical(choices=np.arange(0,19), prior_cnt=[1]*19),
           RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1), 
@@ -142,6 +143,7 @@ def get_reward_pipeline(model_arcs):
     train_graph = tf.Graph()
     train_sess = tf.Session(graph=train_graph)
     model_params = modelSpace_to_modelParams(model_arcs)
+    tf.reset_default_graph()
     with train_graph.as_default(), train_sess.as_default():
         kinn_test = KineticModel(model_params)
         mb = KineticNeuralNetworkBuilder(kinn=kinn_test, session=train_sess, n_channels=13)
@@ -159,14 +161,15 @@ def get_reward_pipeline(model_arcs):
             verbose=0)
 
         hist = model.fit(x_train_b, y_train[:,1],
-                  batch_size=512,
+                  batch_size=768,
                   validation_split=0.2,
                   callbacks=[checkpointer, earlystopper],
-                  epochs=50, verbose=0)
+                  epochs=5, verbose=0)
         y_hat = model.predict(x_test_b).flatten()
         test_pcc = ss.pearsonr(y_hat, y_test[:,1])[0]
     del train_graph, train_sess
     del model, hist
+    tf.keras.backend.clear_session() # THIS IS IMPORTANT!!!
     gc.collect()
     return test_pcc
 
@@ -339,20 +342,20 @@ fig.savefig("range_d.png")
 # In[19]:
 
 
-# EDGE PRESENCE
-#fig, axs_ = plt.subplots(3,3, figsize=(15,15))
-#axs = [axs_[i][j] for i in range(len(axs_)) for j in range(len(axs_[i]))]
-#for k in controller.model_space_probs:
-#    if k[-1] == 'EDGE':
-#        d = controller.model_space_probs[k].sample(size=1000)
-#        ax = axs[k[0]]
-#        sns.distplot(d, ax=ax)
-#        sns.distplot(controller.model_space_probs[k].prior_dist, ax=ax)
-#        ax.set_title(
-#            ' '.join(['Rate ID', str(k[0]), '\nPosterior mean', str(np.mean(d))]))
-#        #_ = ax.set_xlim(0,20)    
-#fig.tight_layout()
-
+# KERNEL SIZE 
+fig, axs_ = plt.subplots(3,3, figsize=(15,15))
+axs = [axs_[i][j] for i in range(len(axs_)) for j in range(len(axs_[i]))]
+for k in controller.model_space_probs:
+    if k[-1] == 'kernel_size':
+        d = controller.model_space_probs[k].sample(size=1000)
+        ax = axs[k[0]]
+        sns.distplot(d, ax=ax)
+        sns.distplot(controller.model_space_probs[k].prior_dist, ax=ax)
+        ax.set_title(
+            ' '.join(['Rate ID', str(k[0]), '\nPosterior mean', str(np.mean(d))]))
+        #_ = ax.set_xlim(0,20)    
+fig.tight_layout()
+fig.savefig("kernel_size.png")
 
 # In[ ]:
 
