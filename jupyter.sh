@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --nodes 1
-##SBATCH --gres=gpu:v100-32gb:1
-##SBATCH --partition=gpu
-#SBATCH --partition=gen
+#SBATCH --gres=gpu:v100-32gb:1
+#SBATCH --partition=gpu
+##SBATCH --partition=gen
 #SBATCH -c 12 --mem=64gb
-#SBATCH --time 7-0:00:00
+#SBATCH --time 6-0:00:00
 #SBATCH --job-name jupyter-notebook
 #SBATCH --output jupyter-notebook-%J.log
 

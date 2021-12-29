@@ -97,7 +97,7 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
                 Lambda(lambda x: tf.reduce_sum(x, axis=1), name="sum_%s" % name)(
                     Conv1D(filters=1, kernel_size=self.rate_pwm_len[i],
                            activation="linear",
-                           use_bias=False,
+                           #use_bias=False,
                            kernel_initializer='zeros',
                            padding="same",
                            name="conv_%s" % name)(
