@@ -9,4 +9,5 @@ export PYTHONPATH="."
 target=$1
 ms=$2
 ns=$3
-python notebooks/03-runAmber.py --target $target --ms $ms --n-states $ns --wd outputs/$target-$ms-$ns
+mkdir -p outputs/$target-$ms-$ns
+python notebooks/03-runAmber.py --target $target --ms $ms --n-states $ns --wd outputs/$target-$ms-$ns > outputs/$target-$ms-$ns/log.txt

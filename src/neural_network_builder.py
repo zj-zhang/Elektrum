@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 from amber.modeler.kerasModeler import ModelBuilder
 
 class KineticNeuralNetworkBuilder(ModelBuilder):
-    def __init__(self, kinn, session=None, n_channels=4):
+    def __init__(self, kinn, session=None, n_feats=25, n_channels=4, replace_conv_by_fc=False):
         """convert a kinetic state graph (with state-specific input sequence ranges) to a neural network,
         whose complexity is specified in rate_pwm_len
 
@@ -27,6 +27,7 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
         kinn : KineticModel
         session : tf.Session
         n_channels : int
+        replace_conv_by_fc : bool
 
         Attributes
         ----------
@@ -63,7 +64,9 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
             tf.keras.backend.set_session(self.session)
 
         # placeholders
+        self.n_feats = n_feats
         self.n_channels = n_channels
+        self.replace_conv_by_fc = replace_conv_by_fc
         self.model = None
         self.layer_dict = None
         self.input_ranges = None
@@ -80,6 +83,8 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
         inputs_op = {}
         self.input_ranges = []
         for a, b in set([tuple(r.input_range) for r in self.kinn.rates]):
+            assert a >= 0
+            b = min(b, self.n_feats-1)
             input_id = "input_%i_%i" % (a, b)
             if input_id not in inputs_op:
                 inputs_op["input_%i_%i" % (a, b)] = Input(
@@ -91,15 +96,17 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
         # build convs --> rates
         rates = []
         for i, rate in enumerate(self.kinn.rates):
-            seq_range = f"input_{rate.input_range[0]}_{rate.input_range[1]}"
+            seq_range = f"input_{rate.input_range[0]}_{min(self.n_feats-1, rate.input_range[1])}"
             name = "k%i" % i
+            seq_range_d = min(self.n_feats-1,rate.input_range[1]) - rate.input_range[0] 
             rates.append(
                 Lambda(lambda x: tf.reduce_sum(x, axis=1), name="sum_%s" % name)(
-                    Conv1D(filters=1, kernel_size=self.rate_pwm_len[i],
+                    Conv1D(filters=1, 
+                           kernel_size=(seq_range_d,) if self.replace_conv_by_fc else self.rate_pwm_len[i],
                            activation="linear",
                            #use_bias=False,
                            kernel_initializer='zeros',
-                           padding="same",
+                           padding="valid" if self.replace_conv_by_fc else "same",
                            name="conv_%s" % name)(
                         inputs_op[seq_range]
                     )

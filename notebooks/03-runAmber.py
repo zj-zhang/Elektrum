@@ -67,7 +67,7 @@ def run():
         kinn_model_space = get_finkelstein_ms()
     else:
         kinn_model_space = get_uniform_ms(n_states=args.n_states, st_win_size=args.win_size)
-    
+
     print(kinn_model_space)
     controller = pmbga.ProbaModelBuildGeneticAlgo(
                 model_space=kinn_model_space,
@@ -78,13 +78,13 @@ def run():
     x_train, x_test, y_train, y_test = load_data(target=args.target)
     # trainEnv parameters
     samps_per_gen = 10   # how many arcs to sample in each generation; important
-    max_gen = 1500
+    max_gen = 2000
     epsilon = 0.05
-    patience = 200
+    patience = 500
     n_warmup_gen = -1
 
     # get prior probas
-    _, old_probs = compute_eps(controller.model_space_probs)
+    #_, old_probs = compute_eps(controller.model_space_probs)
 
     # ## A fancy For-Loop that does the work for `amber.architect.trainEnv`
     hist = []
@@ -108,8 +108,8 @@ def run():
                             y_test=y_test,
                             wd=args.wd
                             )
-                except ValueError:
-                    test_reward = 0
+                #except ValueError:
+                #    test_reward = 0
                 except Exception as e:
                     raise e
                 rate_df = None
@@ -126,7 +126,8 @@ def run():
                 print(f"Gen {generation} < {n_warmup_gen} warmup.. skipped - Time %.2f" % (end-start), flush=True)
                 continue
             _ = controller.train(episode=generation, working_dir=".")
-            delta, old_probs = compute_eps(controller.model_space_probs, old_probs)
+            #delta, old_probs = compute_eps(controller.model_space_probs, old_probs)
+            delta = 0
             post_vars = [np.var(x.sample(size=100)) for _, x in controller.model_space_probs.items()]
             stat_df = stat_df.append({
                 'Generation': generation,
@@ -164,7 +165,7 @@ def run():
     plt.savefig(os.path.join(args.wd, "reward_vs_time.png"))
 
     # plot
-    make_plots(controller, wd=args.wd)
+    make_plots(controller, canvas_nrow=np.ceil(np.sqrt(len(kinn_model_space))), wd=args.wd)
     return controller
 
 
@@ -185,52 +186,55 @@ def load_data(target):
 def get_finkelstein_ms():
     """model space based on https://www.biorxiv.org/content/10.1101/2020.05.21.108613v2
     """
+    ks_choices=[1,3,5]
     kinn_model_space = ModelSpace.from_dict([
-        # k_01, sol -> open R-loop
-        [dict(Layer_type='conv1d', filters=1, SOURCE='0', TARGET='1', 
-              kernel_size=pmbga.Categorical(choices=[1,2,3], prior_cnt=[1]*3),
+        # k_on, sol -> open R-loop
+        [dict(Layer_type='conv1d', filters=1, SOURCE='0', TARGET='1',
+              kernel_size=pmbga.Categorical(choices=[1,2,3], prior_cnt=1),
               EDGE=1,
-              RANGE_ST=pmbga.Categorical(choices=[0,1,2,3,4], prior_cnt=[1]*5),
+              RANGE_ST=pmbga.Categorical(choices=[0,1,2], prior_cnt=1),
               RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1), 
          )],
-        # k_10, open R-loop -> sol
+        # k_off, open R-loop -> sol
         [dict(Layer_type='conv1d', filters=1, SOURCE='1', TARGET='0', 
-              kernel_size=pmbga.Categorical(choices=[1,2,3], prior_cnt=[1]*3),
+              kernel_size=pmbga.Categorical(choices=[1,2,3], prior_cnt=1),
               EDGE=1,
-              RANGE_ST=pmbga.Categorical(choices=[0,1,2,3,4], prior_cnt=[1]*5),
+              RANGE_ST=pmbga.Categorical(choices=[0,1,2], prior_cnt=1),
               RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1),          
          )],
-        # k_12, open R-loop -> intermediate R-loop
+        # k_OI, open R-loop -> intermediate R-loop
         [dict(Layer_type='conv1d', filters=1, SOURCE='1', TARGET='2', 
-              kernel_size=pmbga.Categorical(choices=[1,2,3], prior_cnt=[1]*3), 
+              kernel_size=pmbga.Categorical(choices=ks_choices, prior_cnt=1), 
               EDGE=1,
-              RANGE_ST=pmbga.Categorical(choices=[5,6,7,8,9,10], prior_cnt=[1]*6),
+              RANGE_ST=pmbga.Categorical(choices=[3,4,5,6,7,8,9,10],#11,12], 
+                  prior_cnt=1),
               RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1), 
          )],
-        # k_21, intermediate R-loop -> open R-loop
+        # k_IO, intermediate R-loop -> open R-loop
         [dict(Layer_type='conv1d', filters=1, SOURCE='2', TARGET='1', 
-              kernel_size=pmbga.Categorical(choices=[1,2,3], prior_cnt=[1]*3), 
+              kernel_size=pmbga.Categorical(choices=ks_choices, prior_cnt=1), 
               EDGE=1,
-              RANGE_ST=pmbga.Categorical(choices=[5,6,7,8,9,10], prior_cnt=[1]*6),
+              RANGE_ST=pmbga.Categorical(choices=[3,4,5,6,7,8,9,10],#11,12],
+                  prior_cnt=1),
               RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1),             
          )],
-        # k_23, intermediate R-loop -> closed R-loop
+        # k_IC, intermediate R-loop -> closed R-loop
         [dict(Layer_type='conv1d', filters=1, SOURCE='2', TARGET='3', 
-              kernel_size=pmbga.Categorical(choices=[1,2,3], prior_cnt=[1]*3), 
+              kernel_size=pmbga.Categorical(choices=ks_choices, prior_cnt=[1]*3), 
               EDGE=1,
               RANGE_ST=pmbga.Categorical(choices=[11,12,13,14,15,16,17,18,19], prior_cnt=1),
               RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1),     
          )],
-        # k_32
+        # k_CI, closed R-loop -> intermediate R-loop
         [dict(Layer_type='conv1d', filters=1, SOURCE='3', TARGET='2', 
-              kernel_size=pmbga.Categorical(choices=[1,2,3], prior_cnt=[1]*3),
+              kernel_size=pmbga.Categorical(choices=ks_choices, prior_cnt=[1]*3),
               EDGE=1,        
               RANGE_ST=pmbga.Categorical(choices=[11,12,13,14,15,16,17,18,19], prior_cnt=1),
               RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1),          
          )],
         # k_30
         [dict(Layer_type='conv1d', filters=1, SOURCE='3', TARGET='0', 
-              kernel_size=pmbga.Categorical(choices=[1,2,3,4,5,6], prior_cnt=[1]*6),
+              kernel_size=pmbga.Categorical(choices=[1,3,5,7], prior_cnt=1),
               EDGE=1,
               RANGE_ST=pmbga.Categorical(choices=np.arange(0,19), prior_cnt=[1]*19),
               RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1), 
@@ -246,7 +250,7 @@ def get_uniform_ms(n_states, st_win_size=7):
     st_win = np.arange(st_win_size) - st_win_size//2
     anchors = {s:i for s,i in enumerate(np.arange(0, 23, np.ceil(23/n_states), dtype='int'))}
     ls = []
-    default_ks = lambda: pmbga.Categorical(choices=[1,2,3], prior_cnt=[1]*3)
+    default_ks = lambda: pmbga.Categorical(choices=[1,3,5], prior_cnt=1)
     default_d = lambda: pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1)
     default_st = lambda a: pmbga.Categorical(choices=np.clip(a+st_win, 0, 23), prior_cnt=1)
     for s in range(0, n_states-1):
@@ -283,7 +287,8 @@ def get_reward_pipeline(model_arcs, x_train, y_train, x_test, y_test, wd):
     tf.reset_default_graph()
     with train_graph.as_default(), train_sess.as_default():
         kinn_test = KineticModel(model_params)
-        mb = KineticNeuralNetworkBuilder(kinn=kinn_test, session=train_sess, n_channels=13)
+        mb = KineticNeuralNetworkBuilder(kinn=kinn_test, session=train_sess, n_channels=13,
+                replace_conv_by_fc=True)
         # train and test
         mb.build(optimizer='adam', plot=False, output_act=False)
         model = mb.model
@@ -329,9 +334,10 @@ def compute_eps(model_space_probs, old_probs=None):
 
 
 
-def make_plots(controller, wd):
+def make_plots(controller, canvas_nrow, wd):
+    canvas_nrow = int(canvas_nrow)
     # START SITE
-    fig, axs_ = plt.subplots(3,3, figsize=(15,15))
+    fig, axs_ = plt.subplots(canvas_nrow, canvas_nrow, figsize=(4.5*canvas_nrow,4.5*canvas_nrow))
     axs = [axs_[i][j] for i in range(len(axs_)) for j in range(len(axs_[i]))]
     for k in controller.model_space_probs:
         if k[-1] == 'RANGE_ST':
@@ -349,7 +355,7 @@ def make_plots(controller, wd):
     fig.savefig(os.path.join(wd,"range_st.png"))
 
     # CONV RANGE
-    fig, axs_ = plt.subplots(3,3, figsize=(15,15))
+    fig, axs_ = plt.subplots(canvas_nrow, canvas_nrow, figsize=(4.5*canvas_nrow,4.5*canvas_nrow))
     axs = [axs_[i][j] for i in range(len(axs_)) for j in range(len(axs_[i]))]
     for k in controller.model_space_probs:
         if k[-1] == 'RANGE_D':
@@ -363,7 +369,7 @@ def make_plots(controller, wd):
     fig.savefig(os.path.join(wd,"range_d.png"))
 
     # KERNEL SIZE 
-    fig, axs_ = plt.subplots(3,3, figsize=(15,15))
+    fig, axs_ = plt.subplots(canvas_nrow, canvas_nrow, figsize=(4.5*canvas_nrow,4.5*canvas_nrow))
     axs = [axs_[i][j] for i in range(len(axs_)) for j in range(len(axs_[i]))]
     for k in controller.model_space_probs:
         if k[-1] == 'kernel_size':
