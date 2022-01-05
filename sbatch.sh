@@ -2,7 +2,7 @@
 ##SBATCH --gres=gpu:v100-32gb:1
 ##SBATCH --partition=gpu
 #SBATCH --partition=gen
-#SBATCH -c 8 --mem=64gb
+#SBATCH -c 4 --mem=64gb
 #SBATCH --time 6-0:00:00
 
 export PYTHONPATH="."

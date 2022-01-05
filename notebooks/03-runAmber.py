@@ -30,7 +30,7 @@ import sys
 import shutil
 import gc
 import argparse
-
+import pickle
 import amber
 print(amber.__version__)
 from amber.architect import pmbga
@@ -118,6 +118,8 @@ def run():
                     best_indv = test_reward
                     has_impr = True
                     shutil.move(os.path.join(args.wd, "bestmodel.h5"), os.path.join(args.wd, "AmberSearchBestModel.h5"))
+                    shutil.move(os.path.join(args.wd, "model_params.pkl"), os.path.join(args.wd, "AmberSearchBestModel_config.pkl"))
+                    
                 # store
                 _ = controller.store(action=arc, reward=test_reward)
                 hist.append({'gen': generation, 'arc':arc, 'test_reward': test_reward, 'rate_df': rate_df})
@@ -192,21 +194,21 @@ def get_finkelstein_ms():
         [dict(Layer_type='conv1d', filters=1, SOURCE='0', TARGET='1',
               kernel_size=pmbga.Categorical(choices=[1,2,3], prior_cnt=1),
               EDGE=1,
-              RANGE_ST=pmbga.Categorical(choices=[0,1,2], prior_cnt=1),
-              RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1), 
+              RANGE_ST=0,
+              RANGE_D=3,
          )],
         # k_off, open R-loop -> sol
         [dict(Layer_type='conv1d', filters=1, SOURCE='1', TARGET='0', 
-              kernel_size=pmbga.Categorical(choices=[1,2,3], prior_cnt=1),
+              kernel_size=pmbga.Categorical(choices=[1,3,5], prior_cnt=1),
               EDGE=1,
               RANGE_ST=pmbga.Categorical(choices=[0,1,2], prior_cnt=1),
-              RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1),          
+              RANGE_D=3
          )],
         # k_OI, open R-loop -> intermediate R-loop
         [dict(Layer_type='conv1d', filters=1, SOURCE='1', TARGET='2', 
               kernel_size=pmbga.Categorical(choices=ks_choices, prior_cnt=1), 
               EDGE=1,
-              RANGE_ST=pmbga.Categorical(choices=[3,4,5,6,7,8,9,10],#11,12], 
+              RANGE_ST=pmbga.Categorical(choices=[3,4,5,6,7,8,9,10,11,12], 
                   prior_cnt=1),
               RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1), 
          )],
@@ -214,7 +216,7 @@ def get_finkelstein_ms():
         [dict(Layer_type='conv1d', filters=1, SOURCE='2', TARGET='1', 
               kernel_size=pmbga.Categorical(choices=ks_choices, prior_cnt=1), 
               EDGE=1,
-              RANGE_ST=pmbga.Categorical(choices=[3,4,5,6,7,8,9,10],#11,12],
+              RANGE_ST=pmbga.Categorical(choices=[3,4,5,6,7,8,9,10,11,12],
                   prior_cnt=1),
               RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1),             
          )],
@@ -236,7 +238,7 @@ def get_finkelstein_ms():
         [dict(Layer_type='conv1d', filters=1, SOURCE='3', TARGET='0', 
               kernel_size=pmbga.Categorical(choices=[1,3,5,7], prior_cnt=1),
               EDGE=1,
-              RANGE_ST=pmbga.Categorical(choices=np.arange(0,19), prior_cnt=[1]*19),
+              RANGE_ST=pmbga.Categorical(choices=np.arange(0,19), prior_cnt=1),
               RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1), 
               CONTRIB=1
          )],
@@ -284,6 +286,7 @@ def get_reward_pipeline(model_arcs, x_train, y_train, x_test, y_test, wd):
     train_graph = tf.Graph()
     train_sess = tf.Session(graph=train_graph)
     model_params = modelSpace_to_modelParams(model_arcs)
+    pickle.dump(model_params, open(os.path.join(wd, "model_params.pkl"), "wb"))
     tf.reset_default_graph()
     with train_graph.as_default(), train_sess.as_default():
         kinn_test = KineticModel(model_params)
@@ -307,6 +310,7 @@ def get_reward_pipeline(model_arcs, x_train, y_train, x_test, y_test, wd):
                   validation_split=0.1,
                   callbacks=[checkpointer, earlystopper],
                   epochs=75, verbose=0)
+        model.load_weights(os.path.join(wd,"bestmodel.h5"))
         y_hat = model.predict(x_test_b).flatten()
         test_reward = ss.pearsonr(y_hat, y_test)[0]
     del train_graph, train_sess
