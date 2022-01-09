@@ -34,12 +34,14 @@ Data:
         rate_name = "k_{}{}".format(s,t)
         model_params['States'].add(s)
         model_params['States'].add(t)
-        model_params['Rates'].append({
+        tmp = {
             'name': rate_name,
             'state_list': [s, t],
             'input_range': inp_r,
             'kernel_size': ks
-        })
+        }
+        tmp.update(**arc.Layer_attributes)
+        model_params['Rates'].append(tmp)
         if arc.Layer_attributes.get('CONTRIB', False):
             model_params['Data']['contrib_rate_names'].append(rate_name)
     model_params['States'] = list(model_params['States'])

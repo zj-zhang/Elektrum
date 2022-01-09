@@ -54,7 +54,7 @@ Cas9_HF1_ndABA""".split(), required=True)
     parser.add_argument('--ms', type=str, choices=['finkelstein', 'uniform'], required=True)
     parser.add_argument('--wd', type=str, required=True)
     parser.add_argument('--n-states', type=int, default=4, required=False)
-    parser.add_argument('--win-size', type=int, default=7, required=False)
+    parser.add_argument('--win-size', type=int, default=None, required=False)
 
     args = parser.parse_args()
     os.makedirs(args.wd, exist_ok=True)
@@ -188,89 +188,121 @@ def load_data(target):
 def get_finkelstein_ms():
     """model space based on https://www.biorxiv.org/content/10.1101/2020.05.21.108613v2
     """
-    ks_choices=[1,3,5]
+    ks_choices=[1,3,5,7]
     kinn_model_space = ModelSpace.from_dict([
         # k_on, sol -> open R-loop
         [dict(Layer_type='conv1d', filters=1, SOURCE='0', TARGET='1',
-              kernel_size=pmbga.Categorical(choices=[1,2,3], prior_cnt=1),
+              kernel_size=3,
+              padding="valid",
               EDGE=1,
               RANGE_ST=0,
               RANGE_D=3,
          )],
         # k_off, open R-loop -> sol
         [dict(Layer_type='conv1d', filters=1, SOURCE='1', TARGET='0', 
-              kernel_size=pmbga.Categorical(choices=[1,3,5], prior_cnt=1),
+              kernel_size=3,
+              padding="valid",
               EDGE=1,
-              RANGE_ST=pmbga.Categorical(choices=[0,1,2], prior_cnt=1),
+              RANGE_ST=0,
               RANGE_D=3
          )],
         # k_OI, open R-loop -> intermediate R-loop
         [dict(Layer_type='conv1d', filters=1, SOURCE='1', TARGET='2', 
               kernel_size=pmbga.Categorical(choices=ks_choices, prior_cnt=1), 
+              padding="same",
               EDGE=1,
               RANGE_ST=pmbga.Categorical(choices=[3,4,5,6,7,8,9,10,11,12], 
                   prior_cnt=1),
-              RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1), 
+              RANGE_D=pmbga.Categorical(choices=[5,6,7,8,9,10], prior_cnt=1) 
          )],
         # k_IO, intermediate R-loop -> open R-loop
         [dict(Layer_type='conv1d', filters=1, SOURCE='2', TARGET='1', 
               kernel_size=pmbga.Categorical(choices=ks_choices, prior_cnt=1), 
+              padding="same",
               EDGE=1,
               RANGE_ST=pmbga.Categorical(choices=[3,4,5,6,7,8,9,10,11,12],
                   prior_cnt=1),
-              RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1),             
+              RANGE_D=pmbga.Categorical(choices=[5,6,7,8,9,10], prior_cnt=1) 
          )],
         # k_IC, intermediate R-loop -> closed R-loop
         [dict(Layer_type='conv1d', filters=1, SOURCE='2', TARGET='3', 
-              kernel_size=pmbga.Categorical(choices=ks_choices, prior_cnt=[1]*3), 
+              kernel_size=pmbga.Categorical(choices=ks_choices, prior_cnt=1), 
+              padding="same",
               EDGE=1,
-              RANGE_ST=pmbga.Categorical(choices=[11,12,13,14,15,16,17,18,19], prior_cnt=1),
-              RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1),     
+              RANGE_ST=pmbga.Categorical(choices=[11,12,13,14,15,16,17], prior_cnt=1),
+              RANGE_D=pmbga.Categorical(choices=[5,6,7,8,9,10], prior_cnt=1) 
          )],
         # k_CI, closed R-loop -> intermediate R-loop
         [dict(Layer_type='conv1d', filters=1, SOURCE='3', TARGET='2', 
-              kernel_size=pmbga.Categorical(choices=ks_choices, prior_cnt=[1]*3),
+              kernel_size=pmbga.Categorical(choices=ks_choices, prior_cnt=1),
+              padding="same",
               EDGE=1,        
-              RANGE_ST=pmbga.Categorical(choices=[11,12,13,14,15,16,17,18,19], prior_cnt=1),
-              RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1),          
+              RANGE_ST=pmbga.Categorical(choices=[11,12,13,14,15,16,17], prior_cnt=1),
+              RANGE_D=pmbga.Categorical(choices=[5,6,7,8,9,10], prior_cnt=1) 
          )],
         # k_30
         [dict(Layer_type='conv1d', filters=1, SOURCE='3', TARGET='0', 
               kernel_size=pmbga.Categorical(choices=[1,3,5,7], prior_cnt=1),
+              padding="same",
               EDGE=1,
-              RANGE_ST=pmbga.Categorical(choices=np.arange(0,19), prior_cnt=1),
+              RANGE_ST=pmbga.Categorical(choices=np.arange(0,23-5), prior_cnt=1),
               RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1), 
+              #RANGE_D=pmbga.Categorical(choices=np.arange(7,15), prior_cnt=1),
               CONTRIB=1
          )],
     ])
     return kinn_model_space
 
 
-def get_uniform_ms(n_states, st_win_size=7):
+def get_uniform_ms(n_states, st_win_size=None):
     """an evenly-spaced model space, separating 20nt for given n_states
     """
+    if st_win_size is None:
+        st_win_size = int(np.ceil(23 / n_states))
+        print("win size", st_win_size)
     st_win = np.arange(st_win_size) - st_win_size//2
-    anchors = {s:i for s,i in enumerate(np.arange(0, 23, np.ceil(23/n_states), dtype='int'))}
+    anchors = {s:i for s,i in enumerate(np.arange(3, 23, np.ceil(23/n_states), dtype='int'))}
+    print("anchors", anchors)
     ls = []
-    default_ks = lambda: pmbga.Categorical(choices=[1,3,5], prior_cnt=1)
-    default_d = lambda: pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1)
+    default_ks = lambda: pmbga.Categorical(choices=[1,3,5,7], prior_cnt=1)
+    #default_d = lambda: pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1)
+    default_d = lambda: pmbga.Categorical(choices=np.arange(5, max(10,st_win_size)), prior_cnt=1)
     default_st = lambda a: pmbga.Categorical(choices=np.clip(a+st_win, 0, 23), prior_cnt=1)
-    for s in range(0, n_states-1):
+    # sol -> open R loop is fixed
+    ls.extend([
+        [dict(Layer_type='conv1d', filters=1, SOURCE='0', TARGET='1', EDGE=1,
+            kernel_size=3,
+            padding="valid",
+            RANGE_ST=0,
+            RANGE_D=3
+            )],
+        [dict(Layer_type='conv1d', filters=1, SOURCE='1', TARGET='0', EDGE=1,
+            kernel_size=3,
+            padding="valid",
+            RANGE_ST=0,
+            RANGE_D=3
+            )],
+    ])
+    for s in range(1, n_states-1):
         ls.append([dict(Layer_type='conv1d', filters=1, SOURCE=str(s), TARGET=str(s+1), EDGE=1,
             kernel_size=default_ks(),
+            padding="same",
             RANGE_ST=default_st(anchors[s]),
             RANGE_D=default_d()
             )])
         ls.append([dict(Layer_type='conv1d', filters=1, SOURCE=str(s+1), TARGET=str(s), EDGE=1,
             kernel_size=default_ks(),
+            padding="same",
             RANGE_ST=default_st(anchors[s]),
             RANGE_D=default_d()
             )])
     # last rate: cleavage, irreversible
     ls.append([dict(Layer_type='conv1d', filters=1, SOURCE=str(s+1), TARGET='0', EDGE=1,
-            kernel_size=pmbga.Categorical(choices=[1,2,3,4,5,6], prior_cnt=[1]*6),
-            RANGE_ST=pmbga.Categorical(choices=np.arange(0, 20), prior_cnt=[1]*20),
-            RANGE_D=default_d(),
+            kernel_size=default_ks(),
+            padding="same",
+            RANGE_ST=pmbga.Categorical(choices=np.arange(0, 20), prior_cnt=1),
+            RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1),
+            #RANGE_D=pmbga.Categorical(choices=np.arange(7,15), prior_cnt=1),
             CONTRIB=1
             )])
     return ModelSpace.from_dict(ls)
@@ -290,8 +322,10 @@ def get_reward_pipeline(model_arcs, x_train, y_train, x_test, y_test, wd):
     tf.reset_default_graph()
     with train_graph.as_default(), train_sess.as_default():
         kinn_test = KineticModel(model_params)
-        mb = KineticNeuralNetworkBuilder(kinn=kinn_test, session=train_sess, n_channels=13,
-                replace_conv_by_fc=True)
+        mb = KineticNeuralNetworkBuilder(kinn=kinn_test, session=train_sess, 
+                n_channels=13,
+                n_feats=25,
+                replace_conv_by_fc=False)
         # train and test
         mb.build(optimizer='adam', plot=False, output_act=False)
         model = mb.model
@@ -354,7 +388,7 @@ def make_plots(controller, canvas_nrow, wd):
             sns.distplot(controller.model_space_probs[k].prior_dist, label="Prior", ax=ax)
             ax.set_title(
                 ' '.join(['Rate ID', str(k[0]), '\nPosterior mean', str(np.mean(d))]))
-
+    fig.suptitle("range start")
     fig.tight_layout()
     fig.savefig(os.path.join(wd,"range_st.png"))
 
@@ -369,6 +403,7 @@ def make_plots(controller, canvas_nrow, wd):
             sns.distplot(controller.model_space_probs[k].prior_dist, label="Prior", ax=ax)
             ax.set_title(
                     ' '.join(['Rate ID', str(k[0]), '\nPosterior mean', str(np.mean(d))]))
+    fig.suptitle("range length")
     fig.tight_layout()
     fig.savefig(os.path.join(wd,"range_d.png"))
 
@@ -383,6 +418,7 @@ def make_plots(controller, canvas_nrow, wd):
             sns.distplot(controller.model_space_probs[k].prior_dist, ax=ax)
             ax.set_title(
                 ' '.join(['Rate ID', str(k[0]), '\nPosterior mean', str(np.mean(d))]))
+    fig.suptitle("kernel size")
     fig.tight_layout()
     fig.savefig(os.path.join(wd,"kernel_size.png"))
 

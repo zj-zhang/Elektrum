@@ -12,7 +12,7 @@ def reload_from_dir(wd, replace_conv_by_fc=True):
     mb.build()
     mb.model.load_weights(os.path.join(wd, "AmberSearchBestModel.h5"))
     mb.model.summary()
-    return mb.model
+    return mb
 
 
 if __name__ == "__main__" and not run_from_ipython():

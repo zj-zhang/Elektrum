@@ -106,7 +106,7 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
                            activation="linear",
                            #use_bias=False,
                            kernel_initializer='zeros',
-                           padding="valid" if self.replace_conv_by_fc else "same",
+                           padding=rate.__dict__.get("padding", "valid" if self.replace_conv_by_fc else "same"),
                            name="conv_%s" % name)(
                         inputs_op[seq_range]
                     )
