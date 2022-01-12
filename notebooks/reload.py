@@ -9,7 +9,7 @@ def reload_from_dir(wd, replace_conv_by_fc=True, n_channels=13):
     model_params = pickle.load(open(os.path.join(wd, "AmberSearchBestModel_config.pkl"), "rb"))
     kinn = KineticModel(model_params)
     mb = KineticNeuralNetworkBuilder(kinn=kinn, n_channels=n_channels, replace_conv_by_fc=replace_conv_by_fc)
-    mb.build()
+    mb.build(optimizer="adam", plot=False, output_act=False)
     mb.model.load_weights(os.path.join(wd, "AmberSearchBestModel.h5"))
     mb.model.summary()
     return mb
