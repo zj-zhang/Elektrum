@@ -323,7 +323,7 @@ def get_reward_pipeline(model_arcs, x_train, y_train, x_test, y_test, wd):
     with train_graph.as_default(), train_sess.as_default():
         kinn_test = KineticModel(model_params)
         mb = KineticNeuralNetworkBuilder(kinn=kinn_test, session=train_sess, 
-                n_channels=13,
+                n_channels=8,
                 n_feats=25,
                 replace_conv_by_fc=False)
         # train and test
@@ -340,10 +340,10 @@ def get_reward_pipeline(model_arcs, x_train, y_train, x_test, y_test, wd):
             verbose=0)
 
         hist = model.fit(x_train_b, y_train,
-                  batch_size=768,
+                  batch_size=128,
                   validation_split=0.1,
                   callbacks=[checkpointer, earlystopper],
-                  epochs=75, verbose=0)
+                  epochs=300, verbose=0)
         model.load_weights(os.path.join(wd,"bestmodel.h5"))
         y_hat = model.predict(x_test_b).flatten()
         test_reward = ss.pearsonr(y_hat, y_test)[0]
