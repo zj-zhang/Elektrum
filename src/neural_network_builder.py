@@ -16,9 +16,10 @@ import scipy.stats as ss
 import matplotlib.pyplot as plt
 
 from amber.modeler.kerasModeler import ModelBuilder
+from amber.modeler.dag import get_layer
 
 class KineticNeuralNetworkBuilder(ModelBuilder):
-    def __init__(self, kinn, session=None, n_feats=25, n_channels=4, replace_conv_by_fc=False):
+    def __init__(self, kinn, session=None, output_op=None, n_feats=25, n_channels=4, replace_conv_by_fc=False):
         """convert a kinetic state graph (with state-specific input sequence ranges) to a neural network,
         whose complexity is specified in rate_pwm_len
 
@@ -37,6 +38,8 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
             list of pwm lengths. Together with kinn, the two variable that controls the neural network
         session : tf.Session
             underlying session for tensorflow and keras
+        output_op : amber.architect.Operation, or None
+            specific operation for converting activity to phenotype; if None, will learn from data by a Dense layer
         model : tf.keras.Model, or None
             keras model passing through the internal objects; will be None before initialized
         layer_dict : dict
@@ -67,6 +70,7 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
         self.n_feats = n_feats
         self.n_channels = n_channels
         self.replace_conv_by_fc = replace_conv_by_fc
+        self.output_op = output_op
         self.model = None
         self.layer_dict = None
         self.input_ranges = None
@@ -154,16 +158,24 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
         # build outputs
         # TODO: change the hard-coded output
         if len(activity) > 1:
-            output = Dense(units=1, activation="linear",
+            if self.output_op is None:
+                output = Dense(units=1, activation="linear",
                            kernel_initializer='zeros', name="output")(
-                Concatenate()(activity))
+                    Concatenate()(activity))
+            else:
+                x = Concatenate()(activity)
+                output = get_layer(x=x, state=self.output_op, with_bn=False)
         else:
-            output = Dense(
-                units=1,
-                activation="linear",
-                kernel_initializer='zeros',
-                name="output")(
-                activity[0])
+            if self.output_op is None:
+                output = Dense(
+                    units=1,
+                    activation="linear",
+                    kernel_initializer='zeros',
+                    name="output")(
+                    activity[0])
+            else:
+                output = get_layer(x=activity[0], state=self.output_op, with_bn=False)
+
         return output
 
     def build(self, optimizer=None, output_act=False, plot=False):

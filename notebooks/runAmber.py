@@ -323,6 +323,7 @@ def get_reward_pipeline(model_arcs, x_train, y_train, x_test, y_test, wd):
     with train_graph.as_default(), train_sess.as_default():
         kinn_test = KineticModel(model_params)
         mb = KineticNeuralNetworkBuilder(kinn=kinn_test, session=train_sess, 
+                output_op=lambda: tf.keras.layers.Lambda(lambda x: tf.log(x)/np.log(10), name="output_log10"),
                 n_channels=8,
                 n_feats=25,
                 replace_conv_by_fc=False)
@@ -341,7 +342,7 @@ def get_reward_pipeline(model_arcs, x_train, y_train, x_test, y_test, wd):
 
         hist = model.fit(x_train_b, y_train,
                   batch_size=128,
-                  validation_split=0.1,
+                  validation_split=0.2,
                   callbacks=[checkpointer, earlystopper],
                   epochs=300, verbose=0)
         model.load_weights(os.path.join(wd,"bestmodel.h5"))
