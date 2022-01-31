@@ -323,7 +323,9 @@ def get_reward_pipeline(model_arcs, x_train, y_train, x_test, y_test, wd):
     with train_graph.as_default(), train_sess.as_default():
         kinn_test = KineticModel(model_params)
         mb = KineticNeuralNetworkBuilder(kinn=kinn_test, session=train_sess, 
-                output_op=lambda: tf.keras.layers.Lambda(lambda x: tf.log(x)/np.log(10), name="output_log10"),
+                #output_op=lambda: tf.keras.layers.Lambda(lambda x: tf.log(x)/np.log(10), name="output_log10"),
+                output_op=lambda: tf.keras.layers.Dense(units=1, activation="linear", name="output_nonneg", kernel_constraint=tf.keras.constraints.NonNeg()),
+                #output_op=lambda: lambda x:tf.keras.layers.Dense(units=1, activation="linear", name="output_nonneg", kernel_constraint=tf.keras.constraints.NonNeg())(tf.keras.layers.Lambda(lambda x: tf.log(x)/np.log(10), name="output_log10")(x)),
                 n_channels=8,
                 n_feats=25,
                 replace_conv_by_fc=False)
@@ -341,7 +343,7 @@ def get_reward_pipeline(model_arcs, x_train, y_train, x_test, y_test, wd):
             verbose=0)
 
         hist = model.fit(x_train_b, y_train,
-                  batch_size=128,
+                  batch_size=64,
                   validation_split=0.2,
                   callbacks=[checkpointer, earlystopper],
                   epochs=300, verbose=0)
