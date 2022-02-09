@@ -6,6 +6,7 @@
 
 from src.kinetic_model import KineticModel, modelSpace_to_modelParams
 from src.neural_network_builder import KineticNeuralNetworkBuilder
+from notebooks.runAmber_cnn import get_data
 
 import warnings
 warnings.filterwarnings('ignore')
@@ -55,8 +56,10 @@ Cas9_HF1_ndABA""".split(), required=True)
     parser.add_argument('--wd', type=str, required=True)
     parser.add_argument('--n-states', type=int, default=4, required=False)
     parser.add_argument('--win-size', type=int, default=None, required=False)
+    parser.add_argument("--switch", type=int, default=0, help="switch to train on gRNA2, test on gRNA1; default 0-false")
 
     args = parser.parse_args()
+    pickle.dump(args, open(os.path.join(args.wd, "args.pkl"), "wb"))
     os.makedirs(args.wd, exist_ok=True)
     return args
 
@@ -75,12 +78,16 @@ def run():
                 buffer_size=50,  # buffer size controlls the max history going back
                 batch_size=1,   # batch size does not matter in this case; all arcs will be retrieved
             )
-    x_train, x_test, y_train, y_test = load_data(target=args.target)
+    make_switch = args.switch != 0
+    res = get_data(target=args.target, make_switch=make_switch)
+    print("switch gRNA_1 to testing and gRNA_2 to training:", make_switch)
+    # unpack data tuple
+    x_train, y_train, _, _, x_test, y_test, _, _ = res
     # trainEnv parameters
     samps_per_gen = 10   # how many arcs to sample in each generation; important
-    max_gen = 2000
+    max_gen = 350
     epsilon = 0.05
-    patience = 500
+    patience = 100
     n_warmup_gen = -1
 
     # get prior probas
@@ -170,25 +177,11 @@ def run():
     make_plots(controller, canvas_nrow=np.ceil(np.sqrt(len(kinn_model_space))), wd=args.wd)
     return controller
 
-
-def load_data(target):
-    x = np.load('./data/compiled_X.npy')
-    y = np.load('./data/compiled_Y.npy')
-    with open('./data/y_col_annot.txt', 'r') as f:
-        label_annot = [x.strip() for x in f]
-        label_annot = {x:i for i,x in enumerate(label_annot)}
-    x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=777)
-    target_idx = label_annot[target]
-    y_train = y_train[:, target_idx]
-    y_test = y_test[:, target_idx]
-    return x_train, x_test, y_train, y_test
-
-
 # Model Space
 def get_finkelstein_ms():
     """model space based on https://www.biorxiv.org/content/10.1101/2020.05.21.108613v2
     """
-    ks_choices=[1,3,5,7]
+    ks_choices=[1,3,7]
     kinn_model_space = ModelSpace.from_dict([
         # k_on, sol -> open R-loop
         [dict(Layer_type='conv1d', filters=1, SOURCE='0', TARGET='1',
@@ -326,9 +319,9 @@ def get_reward_pipeline(model_arcs, x_train, y_train, x_test, y_test, wd):
                 #output_op=lambda: tf.keras.layers.Lambda(lambda x: tf.log(x)/np.log(10), name="output_log10"),
                 output_op=lambda: tf.keras.layers.Dense(units=1, activation="linear", name="output_nonneg", kernel_constraint=tf.keras.constraints.NonNeg()),
                 #output_op=lambda: lambda x:tf.keras.layers.Dense(units=1, activation="linear", name="output_nonneg", kernel_constraint=tf.keras.constraints.NonNeg())(tf.keras.layers.Lambda(lambda x: tf.log(x)/np.log(10), name="output_log10")(x)),
-                n_channels=8,
+                n_channels=9,
                 n_feats=25,
-                replace_conv_by_fc=False)
+                replace_conv_by_fc=True)
         # train and test
         mb.build(optimizer='adam', plot=False, output_act=False)
         model = mb.model
@@ -339,17 +332,24 @@ def get_reward_pipeline(model_arcs, x_train, y_train, x_test, y_test, wd):
         earlystopper = EarlyStopping(
             monitor="val_loss",
             mode='min',
-            patience=5,
+            patience=30,
             verbose=0)
 
         hist = model.fit(x_train_b, y_train,
-                  batch_size=64,
-                  validation_split=0.2,
+                  batch_size=128,
+                  validation_data=(x_test_b, y_test),
                   callbacks=[checkpointer, earlystopper],
-                  epochs=300, verbose=0)
+                  epochs=400, verbose=0)
         model.load_weights(os.path.join(wd,"bestmodel.h5"))
         y_hat = model.predict(x_test_b).flatten()
         test_reward = ss.pearsonr(y_hat, y_test)[0]
+        #test_reward = ss.spearmanr(y_hat, y_test).correlation
+        if np.isnan(test_reward):
+            test_reward = 0
+            #model.summary()
+            #print(y_hat[0:5])
+            #print(any(np.isnan(y_hat)))
+            #sys.exit(1)
     del train_graph, train_sess
     del model, hist
     tf.keras.backend.clear_session() # THIS IS IMPORTANT!!!

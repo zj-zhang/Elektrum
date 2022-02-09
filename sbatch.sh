@@ -9,5 +9,6 @@ export PYTHONPATH="."
 target=$1
 ms=$2
 ns=$3
-mkdir -p outputs/$target-$ms-$ns
-python notebooks/runAmber.py --target $target --ms $ms --n-states $ns --wd outputs/$target-$ms-$ns > outputs/$target-$ms-$ns/log.txt
+switch=$4
+mkdir -p outputs/KINN-$target-$ms-$ns
+python notebooks/runAmber_kinn.py --target $target --ms $ms --n-states $ns --wd outputs/KINN-$target-$ms-$ns --switch $switch > outputs/KINN-$target-$ms-$ns/log.txt

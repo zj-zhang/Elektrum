@@ -198,7 +198,7 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
             self.model = Model([inputs_op[j] for j in inputs_op], [
                                activity[k] for k in range(len(activity))])
             self.model.compile(
-                loss='mse',
+                loss='mae',
                 optimizer=optimizer
             )
         else:
@@ -207,7 +207,7 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
             self.model.compile(
                 # TODO
                 #loss='binary_crossentropy',
-                loss='mse',
+                loss='mae',
                 optimizer=optimizer
             )
         self.layer_dict = {l.name: l for l in self.model.layers}
