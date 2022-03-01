@@ -103,6 +103,10 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
             seq_range = f"input_{rate.input_range[0]}_{min(self.n_feats-1, rate.input_range[1])}"
             name = "k%i" % i
             seq_range_d = min(self.n_feats-1,rate.input_range[1]) - rate.input_range[0] 
+            if self.replace_conv_by_fc: # if replace is True, overwrite the rate dict
+                padding = "valid"
+            else:
+                padding = rate.__dict__.get("padding", "valid" if self.replace_conv_by_fc else "same")
             rates.append(
                 Lambda(lambda x: tf.reduce_sum(x, axis=1), name="sum_%s" % name)(
                     Conv1D(filters=1, 
@@ -110,7 +114,7 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
                            activation="linear",
                            #use_bias=False,
                            kernel_initializer='zeros',
-                           padding=rate.__dict__.get("padding", "valid" if self.replace_conv_by_fc else "same"),
+                           padding=padding,
                            name="conv_%s" % name)(
                         inputs_op[seq_range]
                     )

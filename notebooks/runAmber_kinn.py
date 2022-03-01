@@ -321,7 +321,7 @@ def get_reward_pipeline(model_arcs, x_train, y_train, x_test, y_test, wd):
                 #output_op=lambda: lambda x:tf.keras.layers.Dense(units=1, activation="linear", name="output_nonneg", kernel_constraint=tf.keras.constraints.NonNeg())(tf.keras.layers.Lambda(lambda x: tf.log(x)/np.log(10), name="output_log10")(x)),
                 n_channels=9,
                 n_feats=25,
-                replace_conv_by_fc=True)
+                replace_conv_by_fc=False)
         # train and test
         mb.build(optimizer='adam', plot=False, output_act=False)
         model = mb.model

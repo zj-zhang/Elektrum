@@ -1,7 +1,7 @@
 sbatch -J wt-f0 sbatch.sh wtCas9_cleave_rate_log finkelstein 0 0
 sbatch -J wt-f1 sbatch.sh wtCas9_cleave_rate_log finkelstein 1 1
-sbatch -J wt0 sbatch2.sh wtCas9_cleave_rate_log 0 0
-sbatch -J wt1 sbatch2.sh wtCas9_cleave_rate_log 1 1
+#sbatch -J wt0 sbatch2.sh wtCas9_cleave_rate_log 0 0
+#sbatch -J wt1 sbatch2.sh wtCas9_cleave_rate_log 1 1
 
 
 # ON HOLD
