@@ -283,3 +283,8 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
             data.append(seq_ohe[:, a:b])
         return data
 
+    def predict(self, data):
+        assert isinstance(data, np.ndarray)
+        blocks = self.blockify_seq_ohe(data)
+        return self.model.predict(blocks)
+

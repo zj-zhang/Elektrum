@@ -17,7 +17,7 @@ def reload_from_dir(wd, replace_conv_by_fc=True, n_channels=13):
             n_channels=n_channels, replace_conv_by_fc=replace_conv_by_fc)
     mb.build(optimizer="adam", plot=False, output_act=False)
     mb.model.load_weights(os.path.join(wd, "AmberSearchBestModel.h5"))
-    mb.model.summary()
+    #mb.model.summary()
     return mb
 
 
