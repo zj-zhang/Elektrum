@@ -6,7 +6,7 @@
 
 from src.kinetic_model import KineticModel, modelSpace_to_modelParams
 from src.neural_network_builder import KineticNeuralNetworkBuilder
-from notebooks.runAmber_cnn import get_data
+from src.runAmber_cnn import get_data
 
 import warnings
 warnings.filterwarnings('ignore')
@@ -85,9 +85,9 @@ def run():
     x_train, y_train, _, _, x_test, y_test, _, _ = res
     # trainEnv parameters
     samps_per_gen = 10   # how many arcs to sample in each generation; important
-    max_gen = 350
+    max_gen = 500
     epsilon = 0.05
-    patience = 350
+    patience = 250
     n_warmup_gen = -1
 
     # get prior probas
@@ -254,10 +254,10 @@ def get_uniform_ms(n_states, st_win_size=None):
         st_win_size = int(np.ceil(23 / n_states))
         print("win size", st_win_size)
     st_win = np.arange(st_win_size) - st_win_size//2
-    anchors = {s:i for s,i in enumerate(np.arange(3, 23, np.ceil(23/n_states), dtype='int'))}
+    anchors = {s:i for s,i in enumerate(np.arange(3, 23, np.ceil(20/n_states), dtype='int'))}
     print("anchors", anchors)
     ls = []
-    default_ks = lambda: pmbga.Categorical(choices=[1,3,5,7], prior_cnt=1)
+    default_ks = lambda: pmbga.Categorical(choices=[1,3,7], prior_cnt=1)
     #default_d = lambda: pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1)
     default_d = lambda: pmbga.Categorical(choices=np.arange(5, max(10,st_win_size)), prior_cnt=1)
     default_st = lambda a: pmbga.Categorical(choices=np.clip(a+st_win, 0, 23), prior_cnt=1)
@@ -290,6 +290,7 @@ def get_uniform_ms(n_states, st_win_size=None):
             RANGE_D=default_d()
             )])
     # last rate: cleavage, irreversible
+    if n_states==2: s=0
     ls.append([dict(Layer_type='conv1d', filters=1, SOURCE=str(s+1), TARGET='0', EDGE=1,
             kernel_size=default_ks(),
             padding="same",
