@@ -247,15 +247,16 @@ def get_finkelstein_ms():
     return kinn_model_space
 
 
-def get_uniform_ms(n_states, st_win_size=None):
+def get_uniform_ms(n_states, st_win_size=None, verbose=False):
     """an evenly-spaced model space, separating 20nt for given n_states
     """
     if st_win_size is None:
-        st_win_size = int(np.ceil(23 / n_states))
+        st_win_size = int(np.ceil(20 / (n_states-2)))
         print("win size", st_win_size)
     st_win = np.arange(st_win_size) - st_win_size//2
-    anchors = {s:i for s,i in enumerate(np.arange(3, 23, np.ceil(20/n_states), dtype='int'))}
+    anchors = {s:i-int(np.ceil(st_win_size/2)) for s,i in enumerate(3+np.arange(0, 20+st_win_size, st_win_size, dtype='int'))}
     print("anchors", anchors)
+    print("st_win", st_win)
     ls = []
     default_ks = lambda: pmbga.Categorical(choices=[1,3,7], prior_cnt=1)
     #default_d = lambda: pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1)
@@ -277,6 +278,7 @@ def get_uniform_ms(n_states, st_win_size=None):
             )],
     ])
     for s in range(1, n_states-1):
+        print(s, default_st(anchors[s]).choice_lookup)
         ls.append([dict(Layer_type='conv1d', filters=1, SOURCE=str(s), TARGET=str(s+1), EDGE=1,
             kernel_size=default_ks(),
             padding="same",
