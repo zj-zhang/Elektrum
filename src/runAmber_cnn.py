@@ -20,24 +20,7 @@ from tensorflow.keras.optimizers import SGD, Adam
 #from keras.optimizers import SGD, Adam
 import argparse
 import pickle
-
-
-def get_data(target, make_switch=False):
-    x = np.load('./data/compiled_X_1.npy')
-    y = np.load('./data/compiled_Y_1.npy')
-
-    x_2 = np.load('./data/compiled_X_2.npy')
-    y_2 = np.load('./data/compiled_Y_2.npy')
-    if make_switch is True:
-        x, y, x_2, y_2 = x_2, y_2, x, y
-    with open('./data/y_col_annot.txt', 'r') as f:
-        label_annot = [x.strip() for x in f]
-        label_annot = {x:i for i,x in enumerate(label_annot)}
-    x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.1, random_state=777)
-    x2_train, x2_test, y2_train, y2_test = train_test_split(x_2, y_2, test_size=0.2, random_state=888)
-    tar_to_train = label_annot[target]
-    return x_train, y_train[:, tar_to_train], x_test, y_test[:, tar_to_train], \
-        x2_train, y2_train[:, tar_to_train], x2_test, y2_test[:, tar_to_train]
+from src.data import load_finkelstein_data as get_data
 
 
 def get_model_space_long():

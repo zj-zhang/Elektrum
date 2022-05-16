@@ -1,7 +1,8 @@
 """class for converting a kinetic model hypothesis to a keras neural network
 """
 
-import tensorflow as tf
+from amber.utils import corrected_tf as tf
+import tensorflow as tf2
 from tensorflow.keras.layers import Input, Conv1D, Dense, Concatenate, Lambda
 from tensorflow.keras.models import Model
 from tensorflow.keras.optimizers import SGD, Adam
@@ -91,6 +92,7 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
             b = min(b, self.n_feats-1)
             input_id = "input_%i_%i" % (a, b)
             if input_id not in inputs_op:
+                assert b-a > 0, ValueError(f"input range less than 0 for {input_id}")
                 inputs_op["input_%i_%i" % (a, b)] = Input(
                     shape=(b - a, self.n_channels), name="input_%i_%i" % (a, b))
                 self.input_ranges.append((a, b))
@@ -113,7 +115,7 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
                            kernel_size=(seq_range_d,) if self.replace_conv_by_fc else self.rate_pwm_len[i],
                            activation="linear",
                            #use_bias=False,
-                           kernel_initializer='zeros',
+                           #kernel_initializer='zeros',
                            padding=padding,
                            name="conv_%s" % name)(
                         inputs_op[seq_range]
@@ -164,7 +166,8 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
         if len(activity) > 1:
             if self.output_op is None:
                 output = Dense(units=1, activation="linear",
-                           kernel_initializer='zeros', name="output")(
+                           #kernel_initializer='zeros', 
+                           name="output")(
                     Concatenate()(activity))
             else:
                 x = Concatenate()(activity)
@@ -174,7 +177,7 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
                 output = Dense(
                     units=1,
                     activation="linear",
-                    kernel_initializer='zeros',
+                    #kernel_initializer='zeros',
                     name="output")(
                     activity[0])
             else:
@@ -197,7 +200,7 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
         rates = self._build_rates(inputs_op)
         king_altman = self._build_king_altman(rates)
         activity = self._build_activity(rates, king_altman)
-        optimizer = optimizer or SGD(lr=0.1, momentum=0.95, decay=1e-5)
+        optimizer = optimizer or SGD(lr=0.1, momentum=0.95, decay=1e-5, clipnorm=1.0)
         if output_act is True:
             self.model = Model([inputs_op[j] for j in inputs_op], [
                                activity[k] for k in range(len(activity))])
@@ -287,4 +290,82 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
         assert isinstance(data, np.ndarray)
         blocks = self.blockify_seq_ohe(data)
         return self.model.predict(blocks)
+
+
+class KineticMatrixLayer(tf.keras.layers.Layer):
+    """Custom Layer that converts kinetic rates into a kinetic matrix
+    """
+    def __init__(self, num_rates: int, num_states: int, scatter_ind: list, top_k_eigvals=2):
+        super().__init__()
+        self.num_rates = num_rates
+        self.num_states = num_states
+        self.scatter_ind = scatter_ind
+        self.top_k_eigvals = top_k_eigvals
+
+    def build(self, *args):
+        super().build(*args)
+
+    @tf.autograph.experimental.do_not_convert
+    def _scatter_single_sample(self, input_tensor):
+        updates = []
+        inds = []
+        assert input_tensor.shape[0] == self.num_rates
+        for i in range(self.num_rates):
+            val = input_tensor[i]
+            for ind, sign in self.scatter_ind[i]:
+                updates.append(val*sign)
+                inds.append(ind)
+        kinetic_matrix = tf2.scatter_nd(inds, updates, (self.num_states, self.num_states))
+        eigvals = tf2.math.real(tf2.linalg.eigvals(kinetic_matrix))
+        return eigvals
+
+    def call(self, inputs: tf.Tensor):
+        batch_eigvals = tf2.map_fn(self._scatter_single_sample, inputs)
+        batch_top_ev = tf2.math.top_k(batch_eigvals, k=self.top_k_eigvals, sorted=True)
+        return batch_top_ev.values
+
+
+class KineticEigenModelBuilder(KineticNeuralNetworkBuilder):
+    def __init__(self, kinn, session=None, output_op=None, n_feats=25, n_channels=4, replace_conv_by_fc=False):
+        super().__init__(kinn=kinn, session=session, output_op=output_op, n_feats=n_feats, n_channels=n_channels, 
+                replace_conv_by_fc=replace_conv_by_fc)
+
+    # overwrite activity without going through KA
+    def _build_activity(self,rates):
+        concat = tf2.keras.layers.Concatenate(name='gather_rates')(rates)
+        concat = tf2.keras.layers.Lambda(lambda x: tf2.exp(x), name="exp_rates")(concat)
+        scatter_ind = [r.scatter_nd for r in self.kinn.rates]
+        kinetic_eig = KineticMatrixLayer(num_rates=len(rates), num_states=len(self.kinn.states),
+                scatter_ind=scatter_ind)(concat)
+        return [kinetic_eig]
+
+
+    # overwrite build to ignore KA
+    def build(self, optimizer=None, output_act=False, plot=False):
+        inputs_op = self._build_inputs()
+        rates = self._build_rates(inputs_op)
+        activity = self._build_activity(rates,)
+        optimizer = optimizer or tf2.keras.optimizers.SGD(lr=0.1, momentum=0.95, decay=1e-5)
+        if output_act is True:
+            self.model = tf2.keras.models.Model([inputs_op[j] for j in inputs_op], [
+                               activity[k] for k in range(len(activity))])
+            self.model.compile(
+                loss='mae',
+                optimizer=optimizer
+            )
+        else:
+            output = self._build_outputs(activity)
+            self.model = tf2.keras.models.Model([inputs_op[j] for j in inputs_op], output)
+            self.model.compile(
+                # TODO
+                #loss='binary_crossentropy',
+                loss='mae',
+                optimizer=optimizer
+            )
+        self.layer_dict = {l.name: l for l in self.model.layers}
+        if plot is True:
+            plot_model(self.model, to_file='model.png')
+
+
+
 

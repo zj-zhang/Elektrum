@@ -1,41 +1,33 @@
 #!/usr/bin/env python
 # coding: utf-8
-
 # # Probablistic model building genetic algorithm
 
-
+from silence_tensorflow import silence_tensorflow
+silence_tensorflow()
 from src.kinetic_model import KineticModel, modelSpace_to_modelParams
-from src.neural_network_builder import KineticNeuralNetworkBuilder
-from src.runAmber_cnn import get_data
+from src.neural_network_builder import KineticNeuralNetworkBuilder, KineticEigenModelBuilder
+from src.neural_search import search_env
+from src.data import load_finkelstein_data as get_data
+from src.model_spaces import get_cas9_uniform_ms, get_cas9_finkelstein_ms
+from src.reload import reload_from_dir
 
 import warnings
 warnings.filterwarnings('ignore')
-import time
-from datetime import datetime
 
-import matplotlib as mpl
 import matplotlib.pyplot as plt
-import seaborn as sns
-
-from sklearn.model_selection import train_test_split
+import seaborn as  sns
 import scipy.stats as ss
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
 import tensorflow as tf
-tf.logging.set_verbosity(tf.logging.ERROR)
-from tensorflow.keras.optimizers import SGD, Adam
-from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
 import os
 import sys
-import shutil
-import gc
 import argparse
 import pickle
 import amber
 print(amber.__version__)
 from amber.architect import pmbga
-from amber.architect import ModelSpace, Operation
 
 
 def parse():
@@ -52,6 +44,7 @@ wtCas9_ndABA
 Cas9_enh_ndABA
 Cas9_hypa_ndABA
 Cas9_HF1_ndABA""".split(), required=True)
+    parser.add_argument('--use-sink-state', action="store_true", default=False)
     parser.add_argument('--ms', type=str, choices=['finkelstein', 'uniform'], required=True)
     parser.add_argument('--wd', type=str, required=True)
     parser.add_argument('--n-states', type=int, default=4, required=False)
@@ -59,378 +52,84 @@ Cas9_HF1_ndABA""".split(), required=True)
     parser.add_argument("--switch", type=int, default=0, help="switch to train on gRNA2, test on gRNA1; default 0-false")
 
     args = parser.parse_args()
-    pickle.dump(args, open(os.path.join(args.wd, "args.pkl"), "wb"))
     os.makedirs(args.wd, exist_ok=True)
+    pickle.dump(args, open(os.path.join(args.wd, "args.pkl"), "wb"))
     return args
 
 
-def run():
+def main():
     args = parse()
     if args.ms == "finkelstein":
-        kinn_model_space = get_finkelstein_ms()
+        kinn_model_space = get_cas9_finkelstein_ms(use_sink_state=args.use_sink_state)
     else:
-        kinn_model_space = get_uniform_ms(n_states=args.n_states, st_win_size=args.win_size)
-
+        kinn_model_space = get_cas9_uniform_ms(n_states=args.n_states, st_win_size=args.win_size, use_sink_state=args.use_sink_state)
+    print("use sink state:", args.use_sink_state)
     print(kinn_model_space)
     controller = pmbga.ProbaModelBuildGeneticAlgo(
                 model_space=kinn_model_space,
                 buffer_type='population',
                 buffer_size=50,  # buffer size controlls the max history going back
-                batch_size=1,   # batch size does not matter in this case; all arcs will be retrieved
+                batch_size=1,    # batch size does not matter in this case; all arcs will be retrieved
+                ewa_beta=0.8     # ewa_beta approximates the moving average over 1/(1-ewa_beta) prev points
             )
     make_switch = args.switch != 0
     res = get_data(target=args.target, make_switch=make_switch)
     print("switch gRNA_1 to testing and gRNA_2 to training:", make_switch)
     # unpack data tuple
-    x_train, y_train, _, _, x_test, y_test, _, _ = res
+    (x_train, y_train), (x_test, y_test) = res
+    if args.use_sink_state:
+        output_op = lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.math.maximum(tf.reshape(- x[:,1], (-1,1)), 10**-5)), name="output_slice")
+    else:
+        output_op = lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.math.maximum(x, 10**-5)), name="output_log")
+        #output_op = lambda: tf.keras.layers.Dense(units=1, activation="linear", name="output_nonneg", kernel_constraint=tf.keras.constraints.NonNeg())
     # trainEnv parameters
-    samps_per_gen = 10   # how many arcs to sample in each generation; important
-    max_gen = 500
-    epsilon = 0.05
-    patience = 250
-    n_warmup_gen = -1
+    evo_params = dict(
+        model_fn = KineticEigenModelBuilder if args.use_sink_state else KineticNeuralNetworkBuilder,
+        samps_per_gen = 10,   # how many arcs to sample in each generation; important
+        max_gen = 100,
+        patience = 50,
+        n_warmup_gen = 1,
+        train_data = (x_train, y_train),
+        test_data = (x_test, y_test)
+    )
+    # this learning rate is trickier than usual, for eigendecomp to work
+    initial_learning_rate = 0.01
+    lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
+        initial_learning_rate,
+        decay_steps=5*int(7000/128), # decrease every 5 epochs
+        decay_rate=0.9,
+        staircase=True)
 
-    # get prior probas
-    #_, old_probs = compute_eps(controller.model_space_probs)
-
-    # ## A fancy For-Loop that does the work for `amber.architect.trainEnv`
-    hist = []
-    pc_cnt = 0
-    best_indv = 0
-    stat_df = pd.DataFrame(columns=['Generation', 'GenAvg', 'Best', 'PostVar'])
-    for generation in range(max_gen):
-        try:
-            start = time.time()
-            has_impr = False
-            #for _ in tqdm(range(samps_per_gen), total=samps_per_gen, position=0, leave=True):
-            for _ in range(samps_per_gen):
-                # get arc
-                arc, _ = controller.get_action()
-                # get reward
-                try:
-                    test_reward = get_reward_pipeline(arc, 
-                            x_train=x_train,
-                            y_train=y_train,
-                            x_test=x_test,
-                            y_test=y_test,
-                            wd=args.wd
-                            )
-                #except ValueError:
-                #    test_reward = 0
-                except Exception as e:
-                    raise e
-                rate_df = None
-                # update best, or increase patience counter
-                if test_reward > best_indv:
-                    best_indv = test_reward
-                    has_impr = True
-                    shutil.move(os.path.join(args.wd, "bestmodel.h5"), os.path.join(args.wd, "AmberSearchBestModel.h5"))
-                    shutil.move(os.path.join(args.wd, "model_params.pkl"), os.path.join(args.wd, "AmberSearchBestModel_config.pkl"))
-                    
-                # store
-                _ = controller.store(action=arc, reward=test_reward)
-                hist.append({'gen': generation, 'arc':arc, 'test_reward': test_reward, 'rate_df': rate_df})
-            end = time.time()
-            if generation < n_warmup_gen:
-                print(f"Gen {generation} < {n_warmup_gen} warmup.. skipped - Time %.2f" % (end-start), flush=True)
-                continue
-            _ = controller.train(episode=generation, working_dir=".")
-            #delta, old_probs = compute_eps(controller.model_space_probs, old_probs)
-            delta = 0
-            post_vars = [np.var(x.sample(size=100)) for _, x in controller.model_space_probs.items()]
-            stat_df = stat_df.append({
-                'Generation': generation,
-                'GenAvg': controller.buffer.r_bias,
-                'Best': best_indv,
-                'PostVar': np.mean(post_vars)
-            }, ignore_index=True)
-            print("[%s] Gen %i - Mean fitness %.3f - Best %.4f - PostVar %.3f - Eps %.3f - Time %.2f" % (
-                datetime.now().strftime("%H:%M:%S"),
-                generation, 
-                controller.buffer.r_bias, 
-                best_indv, 
-                np.mean(post_vars),
-                delta,
-                end-start), flush=True)
-            #if delta < epsilon:
-            #    print("stop due to convergence criteria")
-            #    break
-            pc_cnt = 0 if has_impr else pc_cnt+1
-            if pc_cnt >= patience:
-                print("early-stop due to max patience w/o improvement")
-                break
-        except KeyboardInterrupt:
-            print("user interrupted")
-            break
-
-    # write out
-    a = pd.DataFrame(hist)
-    a['arc'] = ['|'.join([f"{x.Layer_attributes['RANGE_ST']}-{x.Layer_attributes['RANGE_ST']+x.Layer_attributes['RANGE_D']}-k{x.Layer_attributes['kernel_size']}" for x in entry]) for entry in a['arc']]
-    a.drop(columns=['rate_df'], inplace=True)
-    a.to_csv(os.path.join(args.wd,"train_history.tsv"), sep="\t", index=False)
-    ax = stat_df.plot.line(x='Generation', y=['GenAvg', 'Best'])
-    ax.set_ylabel("Reward (Pearson correlation)")
-    ax.set_xlabel("Generation")
-    plt.savefig(os.path.join(args.wd, "reward_vs_time.png"))
-
-    # plot
-    make_plots(controller, canvas_nrow=np.ceil(np.sqrt(len(kinn_model_space))), wd=args.wd)
+    manager_kwargs = {
+        'output_op': output_op,
+        'n_feats': 25,
+        'n_channels': 9,
+        'batch_size': 128,
+        'epochs': 100,
+        'earlystop': 10,
+        'optimizer': lambda: tf.keras.optimizers.Adam(learning_rate=lr_schedule, clipnorm=1.0),
+        'verbose': 0
+    }
+    controller, hist, stat_df = search_env(
+        controller=controller,
+        wd=args.wd,
+        evo_params=evo_params,
+        manager_kwargs=manager_kwargs
+    )
+    # plot the best model
+    mb = reload_from_dir(wd=args.wd, manager_kwargs=manager_kwargs, model_fn=evo_params['model_fn'])
+    tf.keras.utils.plot_model(mb.model, to_file=os.path.join(args.wd, "model.png"))
+    y_hat = mb.predict(x_test).flatten()
+    h = sns.jointplot(y_test, y_hat)
+    h.set_axis_labels("obs", "pred", fontsize=16)
+    p = ss.pearsonr(y_hat, y_test)
+    h.fig.suptitle("Testing prediction, pcc=%.3f"%p[0], fontsize=16)
+    plt.savefig(os.path.join(args.wd, "test_pred.png"))
     return controller
-
-# Model Space
-def get_finkelstein_ms():
-    """model space based on https://www.biorxiv.org/content/10.1101/2020.05.21.108613v2
-    """
-    ks_choices=[1,3,7]
-    kinn_model_space = ModelSpace.from_dict([
-        # k_on, sol -> open R-loop
-        [dict(Layer_type='conv1d', filters=1, SOURCE='0', TARGET='1',
-              kernel_size=3,
-              padding="valid",
-              EDGE=1,
-              RANGE_ST=0,
-              RANGE_D=3,
-         )],
-        # k_off, open R-loop -> sol
-        [dict(Layer_type='conv1d', filters=1, SOURCE='1', TARGET='0', 
-              kernel_size=3,
-              padding="valid",
-              EDGE=1,
-              RANGE_ST=0,
-              RANGE_D=3
-         )],
-        # k_OI, open R-loop -> intermediate R-loop
-        [dict(Layer_type='conv1d', filters=1, SOURCE='1', TARGET='2', 
-              kernel_size=pmbga.Categorical(choices=ks_choices, prior_cnt=1), 
-              padding="same",
-              EDGE=1,
-              RANGE_ST=pmbga.Categorical(choices=[3,4,5,6,7,8,9,10,11,12], 
-                  prior_cnt=1),
-              RANGE_D=pmbga.Categorical(choices=[5,6,7,8,9,10], prior_cnt=1) 
-         )],
-        # k_IO, intermediate R-loop -> open R-loop
-        [dict(Layer_type='conv1d', filters=1, SOURCE='2', TARGET='1', 
-              kernel_size=pmbga.Categorical(choices=ks_choices, prior_cnt=1), 
-              padding="same",
-              EDGE=1,
-              RANGE_ST=pmbga.Categorical(choices=[3,4,5,6,7,8,9,10,11,12],
-                  prior_cnt=1),
-              RANGE_D=pmbga.Categorical(choices=[5,6,7,8,9,10], prior_cnt=1) 
-         )],
-        # k_IC, intermediate R-loop -> closed R-loop
-        [dict(Layer_type='conv1d', filters=1, SOURCE='2', TARGET='3', 
-              kernel_size=pmbga.Categorical(choices=ks_choices, prior_cnt=1), 
-              padding="same",
-              EDGE=1,
-              RANGE_ST=pmbga.Categorical(choices=[11,12,13,14,15,16,17], prior_cnt=1),
-              RANGE_D=pmbga.Categorical(choices=[5,6,7,8,9,10], prior_cnt=1) 
-         )],
-        # k_CI, closed R-loop -> intermediate R-loop
-        [dict(Layer_type='conv1d', filters=1, SOURCE='3', TARGET='2', 
-              kernel_size=pmbga.Categorical(choices=ks_choices, prior_cnt=1),
-              padding="same",
-              EDGE=1,        
-              RANGE_ST=pmbga.Categorical(choices=[11,12,13,14,15,16,17], prior_cnt=1),
-              RANGE_D=pmbga.Categorical(choices=[5,6,7,8,9,10], prior_cnt=1) 
-         )],
-        # k_30
-        [dict(Layer_type='conv1d', filters=1, SOURCE='3', TARGET='0', 
-              kernel_size=pmbga.Categorical(choices=[1,3,5,7], prior_cnt=1),
-              padding="same",
-              EDGE=1,
-              RANGE_ST=pmbga.Categorical(choices=np.arange(0,23-5), prior_cnt=1),
-              RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1), 
-              #RANGE_D=pmbga.Categorical(choices=np.arange(7,15), prior_cnt=1),
-              CONTRIB=1
-         )],
-    ])
-    return kinn_model_space
-
-
-def get_uniform_ms(n_states, st_win_size=None, verbose=False):
-    """an evenly-spaced model space, separating 20nt for given n_states
-    """
-    if st_win_size is None:
-        st_win_size = int(np.ceil(20 / (n_states-2)))
-        print("win size", st_win_size)
-    st_win = np.arange(st_win_size) - st_win_size//2
-    anchors = {s:i-int(np.ceil(st_win_size/2)) for s,i in enumerate(3+np.arange(0, 20+st_win_size, st_win_size, dtype='int'))}
-    print("anchors", anchors)
-    print("st_win", st_win)
-    ls = []
-    default_ks = lambda: pmbga.Categorical(choices=[1,3,7], prior_cnt=1)
-    #default_d = lambda: pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1)
-    default_d = lambda: pmbga.Categorical(choices=np.arange(5, max(10,st_win_size)), prior_cnt=1)
-    default_st = lambda a: pmbga.Categorical(choices=np.clip(a+st_win, 0, 23), prior_cnt=1)
-    # sol -> open R loop is fixed
-    ls.extend([
-        [dict(Layer_type='conv1d', filters=1, SOURCE='0', TARGET='1', EDGE=1,
-            kernel_size=3,
-            padding="valid",
-            RANGE_ST=0,
-            RANGE_D=3
-            )],
-        [dict(Layer_type='conv1d', filters=1, SOURCE='1', TARGET='0', EDGE=1,
-            kernel_size=3,
-            padding="valid",
-            RANGE_ST=0,
-            RANGE_D=3
-            )],
-    ])
-    for s in range(1, n_states-1):
-        print(s, default_st(anchors[s]).choice_lookup)
-        ls.append([dict(Layer_type='conv1d', filters=1, SOURCE=str(s), TARGET=str(s+1), EDGE=1,
-            kernel_size=default_ks(),
-            padding="same",
-            RANGE_ST=default_st(anchors[s]),
-            RANGE_D=default_d()
-            )])
-        ls.append([dict(Layer_type='conv1d', filters=1, SOURCE=str(s+1), TARGET=str(s), EDGE=1,
-            kernel_size=default_ks(),
-            padding="same",
-            RANGE_ST=default_st(anchors[s]),
-            RANGE_D=default_d()
-            )])
-    # last rate: cleavage, irreversible
-    if n_states==2: s=0
-    ls.append([dict(Layer_type='conv1d', filters=1, SOURCE=str(s+1), TARGET='0', EDGE=1,
-            kernel_size=default_ks(),
-            padding="same",
-            RANGE_ST=pmbga.Categorical(choices=np.arange(0, 20), prior_cnt=1),
-            RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1),
-            #RANGE_D=pmbga.Categorical(choices=np.arange(7,15), prior_cnt=1),
-            CONTRIB=1
-            )])
-    return ModelSpace.from_dict(ls)
-
-
-# ## Components before they are implemented in AMBER
-
-## NEEDS RE-WORK
-# poorman's manager get reward
-def get_reward_pipeline(model_arcs, x_train, y_train, x_test, y_test, wd):
-    from warnings import simplefilter
-    simplefilter(action='ignore', category=DeprecationWarning)
-    train_graph = tf.Graph()
-    train_sess = tf.Session(graph=train_graph)
-    model_params = modelSpace_to_modelParams(model_arcs)
-    pickle.dump(model_params, open(os.path.join(wd, "model_params.pkl"), "wb"))
-    tf.reset_default_graph()
-    with train_graph.as_default(), train_sess.as_default():
-        kinn_test = KineticModel(model_params)
-        mb = KineticNeuralNetworkBuilder(kinn=kinn_test, session=train_sess, 
-                #output_op=lambda: tf.keras.layers.Lambda(lambda x: tf.log(x)/np.log(10), name="output_log10"),
-                output_op=lambda: tf.keras.layers.Dense(units=1, activation="linear", name="output_nonneg", kernel_constraint=tf.keras.constraints.NonNeg()),
-                #output_op=lambda: lambda x:tf.keras.layers.Dense(units=1, activation="linear", name="output_nonneg", kernel_constraint=tf.keras.constraints.NonNeg())(tf.keras.layers.Lambda(lambda x: tf.log(x)/np.log(10), name="output_log10")(x)),
-                n_channels=9,
-                n_feats=25,
-                replace_conv_by_fc=False)
-        # train and test
-        mb.build(optimizer='adam', plot=False, output_act=False)
-        model = mb.model
-        x_train_b = mb.blockify_seq_ohe(x_train)
-        x_test_b = mb.blockify_seq_ohe(x_test)
-        checkpointer = ModelCheckpoint(filepath=os.path.join(wd,"bestmodel.h5"), mode='min', verbose=0, save_best_only=True,
-                               save_weights_only=True)
-        earlystopper = EarlyStopping(
-            monitor="val_loss",
-            mode='min',
-            patience=30,
-            verbose=0)
-
-        hist = model.fit(x_train_b, y_train,
-                  batch_size=128,
-                  validation_data=(x_test_b, y_test),
-                  callbacks=[checkpointer, earlystopper],
-                  epochs=400, verbose=0)
-        model.load_weights(os.path.join(wd,"bestmodel.h5"))
-        y_hat = model.predict(x_test_b).flatten()
-        test_reward = ss.pearsonr(y_hat, y_test)[0]
-        #test_reward = ss.spearmanr(y_hat, y_test).correlation
-        if np.isnan(test_reward):
-            test_reward = 0
-            #model.summary()
-            #print(y_hat[0:5])
-            #print(any(np.isnan(y_hat)))
-            #sys.exit(1)
-    del train_graph, train_sess
-    del model, hist
-    tf.keras.backend.clear_session() # THIS IS IMPORTANT!!!
-    gc.collect()
-    return test_reward
-
-
-
-
-def compute_eps(model_space_probs, old_probs=None):
-    delta = []
-    samp_probs = {}
-    for p in model_space_probs:
-        #print(p)
-        samp_probs[p] = model_space_probs[p].sample(size=10000)
-        n = np.percentile(samp_probs[p], [10, 20, 30, 40, 50, 60, 70, 80, 90])
-        if old_probs is None:
-            delta.append( np.mean(np.abs(n)) )
-        else:
-            o = np.percentile(old_probs[p], [10, 20, 30, 40, 50, 60, 70, 80, 90])
-            delta.append( np.mean(np.abs(o - n)) )
-    return np.mean(delta), samp_probs 
-
-
-
-def make_plots(controller, canvas_nrow, wd):
-    canvas_nrow = int(canvas_nrow)
-    # START SITE
-    fig, axs_ = plt.subplots(canvas_nrow, canvas_nrow, figsize=(4.5*canvas_nrow,4.5*canvas_nrow))
-    axs = [axs_[i][j] for i in range(len(axs_)) for j in range(len(axs_[i]))]
-    for k in controller.model_space_probs:
-        if k[-1] == 'RANGE_ST':
-            try:
-                d = controller.model_space_probs[k].sample(size=1000)
-            except:
-                continue
-            ax = axs[k[0]]
-            sns.distplot(d, label="Post", ax=ax)
-            sns.distplot(controller.model_space_probs[k].prior_dist, label="Prior", ax=ax)
-            ax.set_title(
-                ' '.join(['Rate ID', str(k[0]), '\nPosterior mean', str(np.mean(d))]))
-    fig.suptitle("range start")
-    fig.tight_layout()
-    fig.savefig(os.path.join(wd,"range_st.png"))
-
-    # CONV RANGE
-    fig, axs_ = plt.subplots(canvas_nrow, canvas_nrow, figsize=(4.5*canvas_nrow,4.5*canvas_nrow))
-    axs = [axs_[i][j] for i in range(len(axs_)) for j in range(len(axs_[i]))]
-    for k in controller.model_space_probs:
-        if k[-1] == 'RANGE_D':
-            d = controller.model_space_probs[k].sample(size=1000)
-            ax = axs[k[0]]
-            sns.distplot(d, ax=ax)
-            sns.distplot(controller.model_space_probs[k].prior_dist, label="Prior", ax=ax)
-            ax.set_title(
-                    ' '.join(['Rate ID', str(k[0]), '\nPosterior mean', str(np.mean(d))]))
-    fig.suptitle("range length")
-    fig.tight_layout()
-    fig.savefig(os.path.join(wd,"range_d.png"))
-
-    # KERNEL SIZE 
-    fig, axs_ = plt.subplots(canvas_nrow, canvas_nrow, figsize=(4.5*canvas_nrow,4.5*canvas_nrow))
-    axs = [axs_[i][j] for i in range(len(axs_)) for j in range(len(axs_[i]))]
-    for k in controller.model_space_probs:
-        if k[-1] == 'kernel_size':
-            d = controller.model_space_probs[k].sample(size=1000)
-            ax = axs[k[0]]
-            sns.distplot(d, ax=ax)
-            sns.distplot(controller.model_space_probs[k].prior_dist, ax=ax)
-            ax.set_title(
-                ' '.join(['Rate ID', str(k[0]), '\nPosterior mean', str(np.mean(d))]))
-    fig.suptitle("kernel size")
-    fig.tight_layout()
-    fig.savefig(os.path.join(wd,"kernel_size.png"))
 
 
 
 if __name__ == "__main__":
     if not amber.utils.run_from_ipython():
-        run()
+        main()
 

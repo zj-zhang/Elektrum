@@ -6,6 +6,7 @@ from pprint import pprint
 from sklearn.preprocessing import OneHotEncoder, LabelEncoder
 import pandas as pd
 
+
 def modelSpace_to_modelParams(model_arcs):
     """example config from yaml:
 States:
@@ -25,6 +26,8 @@ Data:
   contrib_rate_names: ['k_{30}']
 """
     model_params = {'States':set([]), 'Rates':[], 'Data':{'contrib_rate_names':[]}}
+    states = sorted(set([s for x in model_arcs for s in (x.Layer_attributes['SOURCE'], x.Layer_attributes['TARGET'])]))
+    scatter_nd_lookup = {s:i for i,s in enumerate(states)}
     for arc in model_arcs:
         if not arc.Layer_attributes.get('EDGE', True):
             continue
@@ -34,17 +37,35 @@ Data:
         rate_name = "k_{}{}".format(s,t)
         model_params['States'].add(s)
         model_params['States'].add(t)
+        # scatter_nd: source is draining, source->target is increasing
+        scatter_nd = [((scatter_nd_lookup[s], scatter_nd_lookup[s]), -1), ((scatter_nd_lookup[t], scatter_nd_lookup[s]), +1) ]
         tmp = {
             'name': rate_name,
             'state_list': [s, t],
             'input_range': inp_r,
-            'kernel_size': ks
+            'kernel_size': ks,
+            # if this rate constant is to be scattered in the Kinetic rate Matrix,
+            # what are the indices?
+            'scatter_nd': scatter_nd
         }
         tmp.update(**arc.Layer_attributes)
         model_params['Rates'].append(tmp)
         if arc.Layer_attributes.get('CONTRIB', False):
             model_params['Data']['contrib_rate_names'].append(rate_name)
     model_params['States'] = list(model_params['States'])
+    return model_params
+
+
+def modelParams_to_modelSpace(model_params):
+    scatter_nd_lookup = {s:i for i,s in enumerate(model_params['States'])}
+    for rate in model_params['Rates']:
+        rate['kernel_size'] = 1
+        rate['RANGE_ST'] = rate['input_range'][0]
+        rate['RANGE_D'] = rate['input_range'][1] - rate['input_range'][0]
+        s, t = rate['state_list']
+        # scatter_nd: source is draining, source->target is increasing
+        scatter_nd = [((scatter_nd_lookup[s], scatter_nd_lookup[s]), -1), ((scatter_nd_lookup[t], scatter_nd_lookup[s]), +1) ]
+        rate['scatter_nd'] = scatter_nd
     return model_params
 
 
@@ -94,6 +115,7 @@ class KineticModel():
         # of. If None, all sequences will be randomly generated, by default
         # None
         self.model_params = model_params
+        # states should be ordered
         self.states = self.model_params['States']
         #self.template = self.model_params['Input'].get('template', None)
         self.template = None
