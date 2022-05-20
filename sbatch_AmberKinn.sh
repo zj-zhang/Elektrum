@@ -11,5 +11,6 @@ ms=$2
 ns=$3
 switch=$4
 final_id=$5
-mkdir -p outputs/final/KINN-$target-$ms-$ns-$final_id
-python src/runAmber_kinn.py --target $target --ms $ms --n-states $ns --wd outputs/final/KINN-$target-$ms-$ns-$final_id --switch $switch > outputs/final/KINN-$target-$ms-$ns-$final_id/log.txt
+use_sink_state=$6
+mkdir -p outputs/final/KINN-$target-$ms-$ns-$final_id"$use_sink_state"
+python src/runAmber_kinn.py --target $target --ms $ms --n-states $ns --wd outputs/final/KINN-$target-$ms-$ns-$final_id"$use_sink_state" --switch $switch $use_sink_state > outputs/final/KINN-$target-$ms-$ns-$final_id"$use_sink_state"/log.txt

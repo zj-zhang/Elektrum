@@ -3,7 +3,7 @@ from amber.architect import ModelSpace, Operation
 import numpy as np
 
 # Model Space
-def get_informed_ms():
+def get_informed_deplete_ms(use_sink_state=True):
     """model space based on https://www.biorxiv.org/content/10.1101/2020.05.21.108613v2
     """
     #ks_choices=[1,3,7]
@@ -62,7 +62,7 @@ def get_informed_ms():
               RANGE_D=default_d()
          )],
         # k_cut
-        [dict(Layer_type='conv1d', filters=1, SOURCE='3', TARGET='4', 
+        [dict(Layer_type='conv1d', filters=1, SOURCE='3', TARGET='4' if use_sink_state else '0', 
               kernel_size=default_ks(),
               padding="same",
               EDGE=1,
@@ -115,7 +115,7 @@ def get_uniform_ms2(n_states, st_win_size=None, verbose=False):
 def get_cas9_finkelstein_ms(use_sink_state=False):
     """model space based on https://www.biorxiv.org/content/10.1101/2020.05.21.108613v2
     """
-    ks_choices=[1,3,7]
+    ks_choices=[1,3,5,7]
     kinn_model_space = ModelSpace.from_dict([
         # k_on, sol -> open R-loop
         [dict(Layer_type='conv1d', filters=1, SOURCE='0', TARGET='1',
@@ -134,46 +134,46 @@ def get_cas9_finkelstein_ms(use_sink_state=False):
               RANGE_D=3
          )],
         # k_OI, open R-loop -> intermediate R-loop
-        [dict(Layer_type='conv1d', filters=1, SOURCE='1', TARGET='2', 
-              kernel_size=pmbga.Categorical(choices=ks_choices, prior_cnt=1), 
-              padding="same",
-              EDGE=1,
-              RANGE_ST=pmbga.Categorical(choices=[3,4,5,6,7,8,9,10,11,12], 
-                  prior_cnt=1),
-              RANGE_D=pmbga.Categorical(choices=[5,6,7,8,9,10], prior_cnt=1) 
-         )],
-        # k_IO, intermediate R-loop -> open R-loop
-        [dict(Layer_type='conv1d', filters=1, SOURCE='2', TARGET='1', 
-              kernel_size=pmbga.Categorical(choices=ks_choices, prior_cnt=1), 
-              padding="same",
-              EDGE=1,
-              RANGE_ST=pmbga.Categorical(choices=[3,4,5,6,7,8,9,10,11,12],
-                  prior_cnt=1),
-              RANGE_D=pmbga.Categorical(choices=[5,6,7,8,9,10], prior_cnt=1) 
-         )],
-        # k_IC, intermediate R-loop -> closed R-loop
-        [dict(Layer_type='conv1d', filters=1, SOURCE='2', TARGET='3', 
-              kernel_size=pmbga.Categorical(choices=ks_choices, prior_cnt=1), 
-              padding="same",
-              EDGE=1,
-              RANGE_ST=pmbga.Categorical(choices=[11,12,13,14,15,16,17], prior_cnt=1),
-              RANGE_D=pmbga.Categorical(choices=[5,6,7,8,9,10], prior_cnt=1) 
-         )],
-        # k_CI, closed R-loop -> intermediate R-loop
-        [dict(Layer_type='conv1d', filters=1, SOURCE='3', TARGET='2', 
+        [dict(Layer_type='conv1d', filters=1, SOURCE='1', TARGET='2',
               kernel_size=pmbga.Categorical(choices=ks_choices, prior_cnt=1),
               padding="same",
-              EDGE=1,        
-              RANGE_ST=pmbga.Categorical(choices=[11,12,13,14,15,16,17], prior_cnt=1),
-              RANGE_D=pmbga.Categorical(choices=[5,6,7,8,9,10], prior_cnt=1) 
+              EDGE=1,
+              RANGE_ST=pmbga.Categorical(choices=[3,4,5,6,7,8,9,10,11,12,13,14,15],
+                  prior_cnt=1),
+              RANGE_D=pmbga.Categorical(choices=[5,6,7,8,9,10,11,12,13,14,15], prior_cnt=1)
+         )],
+        # k_IO, intermediate R-loop -> open R-loop
+        [dict(Layer_type='conv1d', filters=1, SOURCE='2', TARGET='1',
+              kernel_size=pmbga.Categorical(choices=ks_choices, prior_cnt=1),
+              padding="same",
+              EDGE=1,
+              RANGE_ST=pmbga.Categorical(choices=[3,4,5,6,7,8,9,10,11,12,13,14,15],
+                  prior_cnt=1),
+              RANGE_D=pmbga.Categorical(choices=[5,6,7,8,9,10,11,12,13,14,15], prior_cnt=1)
+         )],
+        # k_IC, intermediate R-loop -> closed R-loop
+        [dict(Layer_type='conv1d', filters=1, SOURCE='2', TARGET='3',
+              kernel_size=pmbga.Categorical(choices=ks_choices, prior_cnt=1),
+              padding="same",
+              EDGE=1,
+              RANGE_ST=pmbga.Categorical(choices=[10,11,12,13,14,15,16,17,18,19,20,], prior_cnt=1),
+              RANGE_D=pmbga.Categorical(choices=[5,6,7,8,9,10,11,12,13,14,15], prior_cnt=1)
+         )],
+        # k_CI, closed R-loop -> intermediate R-loop
+        [dict(Layer_type='conv1d', filters=1, SOURCE='3', TARGET='2',
+              kernel_size=pmbga.Categorical(choices=ks_choices, prior_cnt=1),
+              padding="same",
+              EDGE=1,
+              RANGE_ST=pmbga.Categorical(choices=[10,11,12,13,14,15,16,17,18,19,20,], prior_cnt=1),
+              RANGE_D=pmbga.Categorical(choices=[5,6,7,8,9,10,11,12,13,14,15], prior_cnt=1)
          )],
         # k_30 for cycle, k_34 for sink
-        [dict(Layer_type='conv1d', filters=1, SOURCE='3', TARGET='4' if use_sink_state else '0', 
+        [dict(Layer_type='conv1d', filters=1, SOURCE='3', TARGET='4' if use_sink_state else '0',
               kernel_size=pmbga.Categorical(choices=[1,3,5,7], prior_cnt=1),
               padding="same",
               EDGE=1,
               RANGE_ST=pmbga.Categorical(choices=np.arange(0,23-5), prior_cnt=1),
-              RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1), 
+              RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1),
               #RANGE_D=pmbga.Categorical(choices=np.arange(7,15), prior_cnt=1),
               CONTRIB=1
          )],
@@ -226,7 +226,6 @@ def get_cas9_uniform_ms(n_states, st_win_size=None, verbose=False):
             RANGE_D=default_d()
             )])
     # last rate: cleavage, irreversible
-    if n_states==2: s=0
     ls.append([dict(Layer_type='conv1d', filters=1, SOURCE=str(s+1), TARGET='0', EDGE=1,
             kernel_size=default_ks(),
             padding="same",
@@ -238,3 +237,11 @@ def get_cas9_uniform_ms(n_states, st_win_size=None, verbose=False):
     return ModelSpace.from_dict(ls)
 
 
+def get_cas9_finkelstein_ms_with_hidden(use_sink_state=False):
+    ms = get_cas9_finkelstein_ms(use_sink_state=use_sink_state)
+    for layer in ms:
+        assert len(layer) == 1
+        layer[0].Layer_attributes['filters'] = pmbga.Categorical(choices=[1,2,3], prior_cnt=1)
+        layer[0].Layer_attributes['hidden_size'] = pmbga.Categorical(choices=[0,3], prior_cnt=[1,1])
+        layer[0].Layer_attributes['reshape_fn'] = pmbga.Categorical(choices=[0,1,2], prior_cnt=1)
+    return ms

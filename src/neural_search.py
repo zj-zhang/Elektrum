@@ -159,10 +159,13 @@ def get_reward_pipeline(model_arcs, x_train, y_train, x_test, y_test, wd, model_
                       verbose=kwargs.get("verbose", 0))
             model.load_weights(os.path.join(wd,"bestmodel.h5"))
             y_hat = model.predict(x_test_b).flatten()
-            test_reward = ss.pearsonr(y_hat, y_test)[0]
+            reward_fn = kwargs.get("reward_fn", lambda y_hat, y_test: ss.pearsonr(y_hat, y_test)[0])
+            test_reward = reward_fn(y_hat, y_test)
         except tf.errors.InvalidArgumentError as e: # eigen could fail
             test_reward = np.nan
             #raise e
+        #except ValueError:
+        #    test_reward = np.nan
         #test_reward = ss.spearmanr(y_hat, y_test).correlation
         if np.isnan(test_reward):
             test_reward = 0
@@ -172,55 +175,27 @@ def get_reward_pipeline(model_arcs, x_train, y_train, x_test, y_test, wd, model_
     gc.collect()
     return test_reward
 
+
 def make_plots(controller, canvas_nrow, wd):
     canvas_nrow = int(canvas_nrow)
-    # START SITE
-    fig, axs_ = plt.subplots(canvas_nrow, canvas_nrow, figsize=(4.5*canvas_nrow,4.5*canvas_nrow))
-    axs = [axs_[i][j] for i in range(len(axs_)) for j in range(len(axs_[i]))]
-    for k in controller.model_space_probs:
-        if k[-1] == 'RANGE_ST':
-            try:
-                d = controller.model_space_probs[k].sample(size=1000)
-            except:
-                continue
-            ax = axs[k[0]]
-            sns.distplot(d, label="Post", ax=ax)
-            sns.distplot(controller.model_space_probs[k].prior_dist, label="Prior", ax=ax)
-            ax.set_title(
-                ' '.join(['Rate ID', str(k[0]), '\nPosterior mode', str(ss.mode(d).mode[0])]))
-    fig.suptitle("range start")
-    fig.tight_layout()
-    fig.savefig(os.path.join(wd,"range_st.png"))
-
-    # CONV RANGE
-    fig, axs_ = plt.subplots(canvas_nrow, canvas_nrow, figsize=(4.5*canvas_nrow,4.5*canvas_nrow))
-    axs = [axs_[i][j] for i in range(len(axs_)) for j in range(len(axs_[i]))]
-    for k in controller.model_space_probs:
-        if k[-1] == 'RANGE_D':
-            d = controller.model_space_probs[k].sample(size=1000)
-            ax = axs[k[0]]
-            sns.distplot(d, ax=ax)
-            sns.distplot(controller.model_space_probs[k].prior_dist, label="Prior", ax=ax)
-            ax.set_title(
+    tot_distr = set([k[-1] for k in controller.model_space_probs])
+    for distr_key in tot_distr:
+        fig, axs_ = plt.subplots(canvas_nrow, canvas_nrow, figsize=(4.5*canvas_nrow,4.5*canvas_nrow))
+        axs = [axs_[i][j] for i in range(len(axs_)) for j in range(len(axs_[i]))]
+        for k in controller.model_space_probs:
+            if k[-1] == distr_key:
+                try:
+                    d = controller.model_space_probs[k].sample(size=1000)
+                except:
+                    continue
+                ax = axs[k[0]]
+                sns.distplot(d, label="Post", ax=ax)
+                sns.distplot(controller.model_space_probs[k].prior_dist, label="Prior", ax=ax)
+                ax.set_title(
                     ' '.join(['Rate ID', str(k[0]), '\nPosterior mode', str(ss.mode(d).mode[0])]))
-    fig.suptitle("range length")
-    fig.tight_layout()
-    fig.savefig(os.path.join(wd,"range_d.png"))
-
-    # KERNEL SIZE 
-    fig, axs_ = plt.subplots(canvas_nrow, canvas_nrow, figsize=(4.5*canvas_nrow,4.5*canvas_nrow))
-    axs = [axs_[i][j] for i in range(len(axs_)) for j in range(len(axs_[i]))]
-    for k in controller.model_space_probs:
-        if k[-1] == 'kernel_size':
-            d = controller.model_space_probs[k].sample(size=1000)
-            ax = axs[k[0]]
-            sns.distplot(d, ax=ax)
-            sns.distplot(controller.model_space_probs[k].prior_dist, ax=ax)
-            ax.set_title(
-                ' '.join(['Rate ID', str(k[0]), '\nPosterior mode', str(ss.mode(d).mode[0])]))
-    fig.suptitle("kernel size")
-    fig.tight_layout()
-    fig.savefig(os.path.join(wd,"kernel_size.png"))
+        fig.suptitle(distr_key)
+        fig.tight_layout()
+        fig.savefig(os.path.join(wd, f"{distr_key}.png"))
 
 
 

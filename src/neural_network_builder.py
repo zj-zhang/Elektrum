@@ -3,7 +3,7 @@
 
 from amber.utils import corrected_tf as tf
 import tensorflow as tf2
-from tensorflow.keras.layers import Input, Conv1D, Dense, Concatenate, Lambda
+from tensorflow.keras.layers import Input, Conv1D, Dense, Concatenate, Lambda, Flatten
 from tensorflow.keras.models import Model
 from tensorflow.keras.optimizers import SGD, Adam
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
@@ -18,6 +18,12 @@ import matplotlib.pyplot as plt
 
 from amber.modeler.kerasModeler import ModelBuilder
 from amber.modeler.dag import get_layer
+
+
+# TODO 
+class KineticRate(tf.keras.layers.Layer):
+    pass
+
 
 class KineticNeuralNetworkBuilder(ModelBuilder):
     def __init__(self, kinn, session=None, output_op=None, n_feats=25, n_channels=4, replace_conv_by_fc=False):
@@ -66,7 +72,7 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
             self._reset_session()
         else:
             tf.keras.backend.set_session(self.session)
-
+        self.weight_initializer = 'zeros'
         # placeholders
         self.n_feats = n_feats
         self.n_channels = n_channels
@@ -104,24 +110,35 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
         for i, rate in enumerate(self.kinn.rates):
             seq_range = f"input_{rate.input_range[0]}_{min(self.n_feats-1, rate.input_range[1])}"
             name = "k%i" % i
-            seq_range_d = min(self.n_feats-1,rate.input_range[1]) - rate.input_range[0] 
+            seq_range_d = min(self.n_feats-1,rate.input_range[1]) - rate.input_range[0]
             if self.replace_conv_by_fc: # if replace is True, overwrite the rate dict
                 padding = "valid"
             else:
                 padding = rate.__dict__.get("padding", "valid" if self.replace_conv_by_fc else "same")
-            rates.append(
-                Lambda(lambda x: tf.reduce_sum(x, axis=1), name="sum_%s" % name)(
-                    Conv1D(filters=1, 
+            filters = rate.__dict__.get("filters", 1)
+            conv_rate = Conv1D(filters=filters,
                            kernel_size=(seq_range_d,) if self.replace_conv_by_fc else self.rate_pwm_len[i],
                            activation="linear",
                            #use_bias=False,
-                           #kernel_initializer='zeros',
+                           kernel_initializer=self.weight_initializer() if callable(self.weight_initializer) else self.weight_initializer,
                            padding=padding,
                            name="conv_%s" % name)(
-                        inputs_op[seq_range]
-                    )
-                )
-            )
+                        inputs_op[seq_range])
+            hidden_size = rate.__dict__.get("hidden_size", 0)
+            if hidden_size == 0:
+                conv_rate = Flatten()(conv_rate)
+                rate = Lambda(lambda x: tf.reduce_sum(x, axis=1, keepdims=True), name="sum_%s" % name)(conv_rate)
+            else:
+                reshape_fn = rate.__dict__.get("reshape_fn", 0)
+                reshape_map = {0: tf.keras.layers.Flatten, 1:tf.keras.layers.GlobalAveragePooling1D, 2:tf.keras.layers.GlobalMaxPooling1D}
+                conv_rate = reshape_map[reshape_fn]()(conv_rate)
+                h = Dense(units=hidden_size, activation='relu', 
+                        kernel_initializer=self.weight_initializer() if callable(self.weight_initializer) else self.weight_initializer,
+                        name="hidden_%s"%name,
+                        )(conv_rate)
+                rate = Lambda(lambda x: tf.reduce_sum(x, axis=-1, keepdims=True), name="sum_%s" % name)(h)
+
+            rates.append(rate)
         return rates
 
     def _build_king_altman(self, rates):
@@ -166,7 +183,7 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
         if len(activity) > 1:
             if self.output_op is None:
                 output = Dense(units=1, activation="linear",
-                           #kernel_initializer='zeros', 
+                           kernel_initializer='zeros', 
                            name="output")(
                     Concatenate()(activity))
             else:
@@ -177,7 +194,7 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
                 output = Dense(
                     units=1,
                     activation="linear",
-                    #kernel_initializer='zeros',
+                    kernel_initializer='zeros',
                     name="output")(
                     activity[0])
             else:
@@ -205,7 +222,7 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
             self.model = Model([inputs_op[j] for j in inputs_op], [
                                activity[k] for k in range(len(activity))])
             self.model.compile(
-                loss='mae',
+                loss='mse',
                 optimizer=optimizer
             )
         else:
@@ -214,7 +231,7 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
             self.model.compile(
                 # TODO
                 #loss='binary_crossentropy',
-                loss='mae',
+                loss='mse',
                 optimizer=optimizer
             )
         self.layer_dict = {l.name: l for l in self.model.layers}
@@ -295,12 +312,13 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
 class KineticMatrixLayer(tf.keras.layers.Layer):
     """Custom Layer that converts kinetic rates into a kinetic matrix
     """
-    def __init__(self, num_rates: int, num_states: int, scatter_ind: list, top_k_eigvals=2):
+    def __init__(self, num_rates: int, num_states: int, scatter_ind: list, regularize_eigenval_ratio : float, top_k_eigvals=3):
         super().__init__()
         self.num_rates = num_rates
         self.num_states = num_states
         self.scatter_ind = scatter_ind
         self.top_k_eigvals = top_k_eigvals
+        self.regularize_eigenval_ratio = regularize_eigenval_ratio
 
     def build(self, *args):
         super().build(*args)
@@ -322,13 +340,22 @@ class KineticMatrixLayer(tf.keras.layers.Layer):
     def call(self, inputs: tf.Tensor):
         batch_eigvals = tf2.map_fn(self._scatter_single_sample, inputs)
         batch_top_ev = tf2.math.top_k(batch_eigvals, k=self.top_k_eigvals, sorted=True)
+        if self.regularize_eigenval_ratio > 0 :
+            # all eigvals <= 0; larger is ~0,  smaller is more negative
+            # minimize loss -> lam_1 / lam_2 ~ 0 
+            self.add_loss(self.regularize_eigenval_ratio *
+                    tf.reduce_mean(tf.math.divide_no_nan(batch_top_ev.values[:,1], batch_top_ev.values[:,2])))
         return batch_top_ev.values
 
 
 class KineticEigenModelBuilder(KineticNeuralNetworkBuilder):
-    def __init__(self, kinn, session=None, output_op=None, n_feats=25, n_channels=4, replace_conv_by_fc=False):
+    def __init__(self, kinn, session=None, output_op=None, n_feats=25, n_channels=4, replace_conv_by_fc=False,
+            regularize_eigenval_ratio=0.001):
         super().__init__(kinn=kinn, session=session, output_op=output_op, n_feats=n_feats, n_channels=n_channels, 
                 replace_conv_by_fc=replace_conv_by_fc)
+        #self.weight_initializer = 'random_normal'
+        self.weight_initializer = lambda: tf.keras.initializers.RandomNormal(stddev=0.01)
+        self.regularize_eigenval_ratio = regularize_eigenval_ratio
 
     # overwrite activity without going through KA
     def _build_activity(self,rates):
@@ -336,7 +363,7 @@ class KineticEigenModelBuilder(KineticNeuralNetworkBuilder):
         concat = tf2.keras.layers.Lambda(lambda x: tf2.exp(x), name="exp_rates")(concat)
         scatter_ind = [r.scatter_nd for r in self.kinn.rates]
         kinetic_eig = KineticMatrixLayer(num_rates=len(rates), num_states=len(self.kinn.states),
-                scatter_ind=scatter_ind)(concat)
+                scatter_ind=scatter_ind, regularize_eigenval_ratio=self.regularize_eigenval_ratio)(concat)
         return [kinetic_eig]
 
 

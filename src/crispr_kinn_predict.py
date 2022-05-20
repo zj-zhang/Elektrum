@@ -9,7 +9,9 @@ from Bio import pairwise2
 from Bio.Seq import Seq
 import warnings
 from src.reload import reload_from_dir
-import tensorflow as tf
+from src.neural_network_builder import KineticNeuralNetworkBuilder, KineticEigenModelBuilder
+#import tensorflow as tf
+from amber.utils import corrected_tf as tf
 from tqdm import tqdm
 import os
 import matplotlib.pyplot as plt
@@ -19,10 +21,34 @@ import scipy.stats as ss
 
 
 config = {
-    'kinn_1': "outputs/KINN-wtCas9_cleave_rate_log-finkelstein-0/",
-    'kinn_2': "outputs/KINN-wtCas9_cleave_rate_log-finkelstein-1/",
+    'kinn_1': "outputs/bak_20220515/KINN-wtCas9_cleave_rate_log-finkelstein-0-rep2-gRNA1",
+    'kinn_2': "outputs/bak_20220515/KINN-wtCas9_cleave_rate_log-finkelstein-0-rep1-gRNA2",
     'dcnn_1': "outputs/CNN-wtCas9_cleave_rate_log-0/",
     'dcnn_2': "outputs/CNN-wtCas9_cleave_rate_log-1/",
+}
+
+# trainEnv parameters
+evo_params = dict(
+    model_fn = KineticNeuralNetworkBuilder,
+    #model_fn = KineticEigenModelBuilder,
+    samps_per_gen = 10,   # how many arcs to sample in each generation; important
+    max_gen = 200,
+    patience = 50,
+    n_warmup_gen = 0,
+    #train_data = (x_train, y_train),
+    #test_data = (x_test, y_test)
+)
+
+# manager configs
+manager_kwargs={
+    'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(x, 10**-5, 10**-1))/np.log(10), name="output_log"),  # change the clip as well
+    #'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.math.maximum(tf.reshape(- x[:,1], (-1,1)), 10**-5))/np.log(10), name="output_slice"),
+    'n_feats': 25,  # remember to change this!!
+    'n_channels': 9,
+    'batch_size': 128,
+    'epochs': 30,
+    'earlystop': 10,
+    'verbose': 0
 }
 
 def get_letter_index(build_indel=True):
@@ -144,12 +170,16 @@ def predict_on_dataframe(data, is_aligned=True):
     fea = featurize_alignment(alignments, ltidx)
     # load kinn
     sess = tf.Session()
-    kinn_1 = reload_from_dir(config['kinn_1'],
+    kinn_1 = reload_from_dir(wd=config['kinn_1'],
                              sess=sess,
-                             replace_conv_by_fc=False, n_channels=9)
-    kinn_2 = reload_from_dir(config['kinn_2'],
+                             manager_kwargs=manager_kwargs,
+                             model_fn=evo_params['model_fn']
+                             )
+    kinn_2 = reload_from_dir(wd=config['kinn_2'],
                              sess=sess,
-                             replace_conv_by_fc=False, n_channels=9)
+                             manager_kwargs=manager_kwargs,
+                             model_fn=evo_params['model_fn']
+                             )
     # load cnn
     wd = config['dcnn_1']
     train_hist = pd.read_table(os.path.join(wd, "train_history.csv"), sep=",", header=None)
@@ -160,6 +190,7 @@ def predict_on_dataframe(data, is_aligned=True):
     train_hist = pd.read_table(os.path.join(wd, "train_history.csv"), sep=",", header=None)
     best_trial_id = train_hist.sort_values(2, ascending=False).head(1)[0]
     dcnn_2 = tf.keras.models.load_model(os.path.join(wd, "weights", "trial_%i"%best_trial_id, "bestmodel.h5"))
+
     data['kinn_1'] = kinn_1.predict(fea)
     data['kinn_2'] = kinn_2.predict(fea)
     data['dcnn_1'] = dcnn_1.predict(fea)

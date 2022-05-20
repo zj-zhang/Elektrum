@@ -4,7 +4,7 @@ from sklearn.model_selection import train_test_split
 from src.crispr_kinn_predict import featurize_alignment, get_letter_index
 
 
-def get_sim_ness_data(seed=111):
+def get_sim_ness_data(seed=111, logbase=None):
     ltidx = get_letter_index()
     df = pd.read_table("/mnt/home/alamson/ceph/DATA/CRISPR/KineticSims/22-05-12_cas9_kinn_deplete/cas9_kinn_deplete_full_data.tsv")
     df = df.query('rate_fit != 1.0')
@@ -13,20 +13,29 @@ def get_sim_ness_data(seed=111):
     ref = df.iloc[0]['seq']
     alignments = [(ref, r['seq']) for _, r in df.iterrows() ]
     x = featurize_alignment(alignments=alignments, ltidx=ltidx, maxlen=50)
-    y = np.log(df['rate_fit'])
+    y = df['rate_fit']
+    if logbase:
+        y = np.log(y) / np.log(logbase)
     x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=seed)
     return (x_train, y_train), (x_test, y_test)
 
 
-def load_finkelstein_data(target='wtCas9_cleave_rate_log', make_switch=False):
+def load_finkelstein_data(target='wtCas9_cleave_rate_log', make_switch=False, logbase=None, include_ref=False):
     x = np.load('./data/compiled_X_1.npy')
+    if include_ref is False:
+        x = x[:,:, 4:]
     y = np.load('./data/compiled_Y_1.npy')
-    y = np.log(10**y)
+    y = 10**y
+    if logbase:
+        y = np.log(y) / np.log(logbase)
 
     x_2 = np.load('./data/compiled_X_2.npy')
+    if include_ref is False:
+        x_2 = x_2[:,:, 4:]
     y_2 = np.load('./data/compiled_Y_2.npy')
-    y_2 = np.log(10**y_2)
-    #y_2 = 10**y_2
+    y_2 = 10**y_2
+    if logbase:
+        y_2 = np.log(y_2) / np.log(logbase)
 
     if make_switch is True:
         x, y, x_2, y_2 = x_2, y_2, x, y
