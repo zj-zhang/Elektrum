@@ -20,7 +20,7 @@ def get_sim_ness_data(seed=111, logbase=None):
     return (x_train, y_train), (x_test, y_test)
 
 
-def load_finkelstein_data(target='wtCas9_cleave_rate_log', make_switch=False, logbase=None, include_ref=False):
+def load_finkelstein_data(target='wtCas9_cleave_rate_log', make_switch=False, logbase=None, include_ref=False, return_remainder=False):
     x = np.load('./data/compiled_X_1.npy')
     if include_ref is False:
         x = x[:,:, 4:]
@@ -46,8 +46,9 @@ def load_finkelstein_data(target='wtCas9_cleave_rate_log', make_switch=False, lo
     x_train, x_test, y_train, y_test = x, None, y, None
     x2_train, x2_test, y2_train, y2_test = train_test_split(x_2, y_2, test_size=0.2, random_state=888)
     tar_to_train = label_annot[target]
-    #return x_train, y_train[:, tar_to_train], None, None, \
-    #    x2_train, y2_train[:, tar_to_train], x2_test, y2_test[:, tar_to_train]
-    return (x_train, y_train[:, tar_to_train]), (x2_train, y2_train[:, tar_to_train])
+    if return_remainder is False:
+        return (x_train, y_train[:, tar_to_train]), (x2_train, y2_train[:, tar_to_train])
+    else:
+        return x2_test, y2_test[:, tar_to_train]
 
 

@@ -21,8 +21,9 @@ from amber.modeler.dag import get_layer
 
 
 # TODO 
-class KineticRate(tf.keras.layers.Layer):
-    pass
+class KineticRate(tf.keras.layers.Conv1D):
+    def __init__(self, filters, kernel_size, kernel_initializer='zeros',):
+        super().__init__()
 
 
 class KineticNeuralNetworkBuilder(ModelBuilder):

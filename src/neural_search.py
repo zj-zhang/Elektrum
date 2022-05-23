@@ -105,6 +105,9 @@ def search_env(controller, wd, evo_params, manager_kwargs=None):
     ax.set_ylabel("Reward (Pearson correlation)")
     ax.set_xlabel("Generation")
     plt.savefig(os.path.join(wd, "reward_vs_time.png"))
+    
+    # save
+    pickle.dump(controller, open(os.path.join(wd, "controller_states.pkl"), "wb"))
 
     # plot
     make_plots(controller, canvas_nrow=np.ceil(np.sqrt(len(controller.model_space))), wd=wd)

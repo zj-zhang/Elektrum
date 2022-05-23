@@ -1,5 +1,5 @@
 # Amber Kinn - Finkelstein model space
-for i in `seq 1 3`; do
+for i in `seq 1 5`; do
 	sbatch -J wt-f-0$i sbatch_AmberKinn.sh wtCas9_cleave_rate_log finkelstein 0 0 rep$i-gRNA1
 	#sbatch -J wt-f-0$i sbatch_AmberKinn.sh wtCas9_cleave_rate_log finkelstein 0 0 rep$i-gRNA1 --use-sink-state
 	sbatch -J wt-f-1$i sbatch_AmberKinn.sh wtCas9_cleave_rate_log finkelstein 0 1 rep$i-gRNA2
