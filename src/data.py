@@ -4,16 +4,19 @@ from sklearn.model_selection import train_test_split
 from src.crispr_kinn_predict import featurize_alignment, get_letter_index
 
 
-def get_sim_ness_data(seed=111, logbase=None):
+def get_sim_deplete_data(fp, seed=111, logbase=None):
     ltidx = get_letter_index()
-    df = pd.read_table("/mnt/home/alamson/ceph/DATA/CRISPR/KineticSims/22-05-12_cas9_kinn_deplete/cas9_kinn_deplete_full_data.tsv")
-    df = df.query('rate_fit != 1.0')
-    df['rate_fit'] = np.clip(df['rate_fit'], 1e-8, 10)
-    #ref = "TCGGTAGGATCGTAAGATAGTATTCAGGACCCCGTTAACCATTTCGAAAG"
+    df = pd.read_table(fp)
+    #df = df.query('rate_fit != 1.0')
+    print(df.shape)
+    df = df.query('rate_fit_rsqr > 0.98')
+    print(df.shape)
+    print(df['rate_fit_rsqr'].min(), df['rate_fit_rsqr'].max())
     ref = df.iloc[0]['seq']
     alignments = [(ref, r['seq']) for _, r in df.iterrows() ]
     x = featurize_alignment(alignments=alignments, ltidx=ltidx, maxlen=50)
     y = df['rate_fit']
+    #y = - df['first_eigval']
     if logbase:
         y = np.log(y) / np.log(logbase)
     x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=seed)

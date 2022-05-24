@@ -73,14 +73,16 @@ def main():
                 ewa_beta=0.0     # ewa_beta approximates the moving average over 1/(1-ewa_beta) prev points
             )
     make_switch = args.switch != 0
-    res = get_data(target=args.target, make_switch=make_switch, logbase=10, include_ref=False)
+    res = get_data(target=args.target, make_switch=make_switch, logbase=None, include_ref=False)
     print("switch gRNA_1 to testing and gRNA_2 to training:", make_switch)
     # unpack data tuple
     (x_train, y_train), (x_test, y_test) = res
     if args.use_sink_state:
-        output_op = lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(tf.reshape(- x[:,1], (-1,1)), 10**-5, 10**-1))/np.log(10), name="output_slice")
+        #output_op = lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(tf.reshape(- x[:,1], (-1,1)), 10**-5, 10**-1))/np.log(10), name="output_slice")
+        output_op = lambda: tf.keras.layers.Lambda(lambda x: tf.clip_by_value(tf.reshape(- x[:,1], (-1,1)), 10**-5, 10**-1), name="output_slice")
     else:
-        output_op = lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(x, 10**-5, 10**-1))/np.log(10), name="output_log")
+        #output_op = lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(x, 10**-5, 10**-1))/np.log(10), name="output_log")
+        output_op = lambda: tf.keras.layers.Lambda(lambda x: tf.clip_by_value(x, 10**-5, 10**-1), name="output_log")
         #output_op = lambda: tf.keras.layers.Dense(units=1, activation="linear", name="output_nonneg", kernel_constraint=tf.keras.constraints.NonNeg())
     # trainEnv parameters
     evo_params = dict(

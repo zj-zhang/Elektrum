@@ -30,8 +30,8 @@ def reload_from_dir(wd, manager_kwargs, sess=None, model_fn=None, load_weights=T
     mb.build(optimizer=opt, plot=False, output_act=False)
     if load_weights is True:
         try: # prioritize loading linear offset model
-            print("loaded linear_offset model")
             mb.model.load_weights(os.path.join(wd, "bestmodel_linear_offset.h5"))
+            print("loaded linear_offset model")
         except:
             print("loaded searched model")
             mb.model.load_weights(os.path.join(wd, "AmberSearchBestModel.h5"))
