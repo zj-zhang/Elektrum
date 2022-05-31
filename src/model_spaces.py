@@ -181,7 +181,7 @@ def get_cas9_finkelstein_ms(use_sink_state=False):
     return kinn_model_space
 
 
-def get_cas9_uniform_ms(n_states, st_win_size=None, verbose=False):
+def get_cas9_uniform_ms(n_states, st_win_size=None, use_sink_state=False, verbose=False):
     """an evenly-spaced model space, separating 20nt for given n_states
     """
     if st_win_size is None:
@@ -189,8 +189,8 @@ def get_cas9_uniform_ms(n_states, st_win_size=None, verbose=False):
         print("win size", st_win_size)
     st_win = np.arange(st_win_size) - st_win_size//2
     anchors = {s:i-int(np.ceil(st_win_size/2)) for s,i in enumerate(3+np.arange(0, 20+st_win_size, st_win_size, dtype='int'))}
-    print("anchors", anchors)
-    print("st_win", st_win)
+    if verbose: print("anchors", anchors)
+    if verbose: print("st_win", st_win)
     ls = []
     default_ks = lambda: pmbga.Categorical(choices=[1,3,7], prior_cnt=1)
     #default_d = lambda: pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1)
@@ -212,7 +212,7 @@ def get_cas9_uniform_ms(n_states, st_win_size=None, verbose=False):
             )],
     ])
     for s in range(1, n_states-1):
-        print(s, default_st(anchors[s]).choice_lookup)
+        if verbose: print(s, default_st(anchors[s]).choice_lookup)
         ls.append([dict(Layer_type='conv1d', filters=1, SOURCE=str(s), TARGET=str(s+1), EDGE=1,
             kernel_size=default_ks(),
             padding="same",
@@ -226,7 +226,7 @@ def get_cas9_uniform_ms(n_states, st_win_size=None, verbose=False):
             RANGE_D=default_d()
             )])
     # last rate: cleavage, irreversible
-    ls.append([dict(Layer_type='conv1d', filters=1, SOURCE=str(s+1), TARGET='0', EDGE=1,
+    ls.append([dict(Layer_type='conv1d', filters=1, SOURCE=str(s+1), TARGET='0' if not use_sink_state else str(s+2), EDGE=1,
             kernel_size=default_ks(),
             padding="same",
             RANGE_ST=pmbga.Categorical(choices=np.arange(0, 20), prior_cnt=1),

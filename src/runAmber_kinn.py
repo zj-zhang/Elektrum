@@ -73,16 +73,16 @@ def main():
                 ewa_beta=0.0     # ewa_beta approximates the moving average over 1/(1-ewa_beta) prev points
             )
     make_switch = args.switch != 0
-    res = get_data(target=args.target, make_switch=make_switch, logbase=None, include_ref=False)
+    logbase = 10
+    res = get_data(target=args.target, make_switch=make_switch, logbase=logbase, include_ref=False)
     print("switch gRNA_1 to testing and gRNA_2 to training:", make_switch)
     # unpack data tuple
     (x_train, y_train), (x_test, y_test) = res
     if args.use_sink_state:
-        #output_op = lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(tf.reshape(- x[:,1], (-1,1)), 10**-5, 10**-1))/np.log(10), name="output_slice")
-        output_op = lambda: tf.keras.layers.Lambda(lambda x: tf.clip_by_value(tf.reshape(- x[:,1], (-1,1)), 10**-5, 10**-1), name="output_slice")
+        output_op = lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(tf.reshape(- x[:,1], (-1,1)), 10**-5, 10**-1))/np.log(logbase), name="output_slice")
+        #output_op = lambda: tf.keras.layers.Lambda(lambda x: tf.clip_by_value(tf.reshape(- x[:,1], (-1,1)), 10**-5, 10**-1), name="output_slice")
     else:
-        #output_op = lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(x, 10**-5, 10**-1))/np.log(10), name="output_log")
-        output_op = lambda: tf.keras.layers.Lambda(lambda x: tf.clip_by_value(x, 10**-5, 10**-1), name="output_log")
+        output_op = lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(x, 10**-5, 10**-1))/np.log(logbase), name="output_log")
         #output_op = lambda: tf.keras.layers.Dense(units=1, activation="linear", name="output_nonneg", kernel_constraint=tf.keras.constraints.NonNeg())
     # trainEnv parameters
     evo_params = dict(
@@ -96,9 +96,10 @@ def main():
     )
     # this learning rate is trickier than usual, for eigendecomp to work
     initial_learning_rate = 0.01
+    batch_size = 512
     lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
         initial_learning_rate,
-        decay_steps=10*int(7000/128), # decrease every 5 epochs
+        decay_steps=10*int(7000/batch_size), # decrease every 10 epochs
         decay_rate=0.9,
         staircase=True)
 
@@ -106,7 +107,7 @@ def main():
         'output_op': output_op,
         'n_feats': 25,
         'n_channels': 9,
-        'batch_size': 512,
+        'batch_size': batch_size,
         'epochs': 300,
         'earlystop': 15,
         'optimizer': lambda: tf.keras.optimizers.Adam(learning_rate=lr_schedule, clipnorm=1.0),
