@@ -41,7 +41,7 @@ evo_params = dict(
 
 # manager configs
 manager_kwargs={
-    'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(x, 10**-5, 10**-1))/np.log(10), name="output_log"),  # change the clip as well
+    'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(x)/np.log(10), name="output_log"),  # change the clip as well
     #'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.math.maximum(tf.reshape(- x[:,1], (-1,1)), 10**-5))/np.log(10), name="output_slice"),
     'n_feats': 25,  # remember to change this!!
     'n_channels': 9,

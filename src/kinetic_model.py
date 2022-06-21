@@ -93,7 +93,14 @@ class RateMat():
     def __init__(self, params, template=None):
         self.__dict__ = params
         self.template = template
-        #self.mat = self.build_mat()
+        try:
+            self.mat = self.build_mat()
+        except:
+            self.mat = None
+
+    def build_mat(self):
+        length = self.input_range[1] - self.input_range[0]
+        return eval(self.weight_distr)
 
     def get_rate(self, seq):
         bi, ei = self.input_range
