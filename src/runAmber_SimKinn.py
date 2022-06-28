@@ -1,6 +1,12 @@
 #!/usr/bin/env python
 # coding: utf-8
 
+"""
+Example usage:
+python src/runAmber_SimKinn.py --wd outputs/test --data-file data/sim_data/21-11-1_test_1/test_1.csv --param-file data/sim_data/21-11-1_test_1/test_1_model_params.yaml
+"""
+
+
 # # Probablistic model building genetic algorithm
 
 # In[1]:
@@ -18,7 +24,7 @@ import seaborn as sns
 from src.kinetic_model import KineticModel, modelSpace_to_modelParams
 from src.neural_network_builder import KineticNeuralNetworkBuilder
 
-
+import os
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
@@ -27,14 +33,62 @@ import yaml
 import tensorflow as tf
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 tf.logging.set_verbosity(tf.logging.ERROR)
+import argparse
 
-with open('./data/sim_data/21-11-1_test_1/test_1_model_params.yaml', 'r') as f:
+import amber
+print(amber.__version__)
+from amber.architect import pmbga
+from amber.architect import ModelSpace, Operation
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--disable-posterior', action="store_true", default=False)
+parser.add_argument('--patience', type=int, default=200, required=False)
+parser.add_argument('--max-gen', type=int, default=600, required=False)
+parser.add_argument('--samps-per-gen', type=int, default=5, required=False)
+parser.add_argument('--wd', type=str, required=True)
+parser.add_argument('--data-file', type=str, required=True)
+parser.add_argument('--param-file', type=str, required=True)
+
+
+
+args = parser.parse_args()
+
+# trainEnv parameters
+samps_per_gen = args.samps_per_gen   # how many arcs to sample in each generation; important
+max_gen = args.max_gen
+patience = args.patience
+n_warmup_gen = -1
+disable_posterior_update = args.disable_posterior
+wd = args.wd
+
+os.makedirs(wd, exist_ok=True)
+
+# In[2]:
+
+
+kinn_sty = {
+    "axes.titlesize": 18,
+    "axes.labelsize": 20,
+    "lines.linewidth": 1,
+    "lines.markersize": 10,
+    "xtick.labelsize": 20,
+    "ytick.labelsize": 20,
+    "font.size": 18,
+    "font.sans-serif": 'Helvetica',
+    "text.usetex": False,
+    'mathtext.fontset': 'cm',
+}
+plt.style.use(kinn_sty)
+
+# ground-truth params for synthetic data
+with open(args.param_file, 'r') as f:
     config = yaml.load(f, Loader=yaml.Loader)
     kinn_gr = KineticModel(config)
 
 
 def kinn_train_fn(model, traindata, epochs, plot=False, verbose=0):
-    """TODO: this needs a lot of fine-tuning arguments to parse
+    """this can use lots of fine-tuning arguments to parse; for the purpose of simulated data, keep it as is
 
     Parameters
     ----------
@@ -43,7 +97,8 @@ def kinn_train_fn(model, traindata, epochs, plot=False, verbose=0):
     plot : bool
         save history plot
     """
-    checkpointer = ModelCheckpoint(filepath="bestmodel.h5", mode='min', verbose=verbose, save_best_only=True,
+    model_fp = os.path.join(args.wd, "bestmodel.h5")
+    checkpointer = ModelCheckpoint(filepath=model_fp, mode='min', verbose=verbose, save_best_only=True,
                                    save_weights_only=True)
     earlystopper = EarlyStopping(
         monitor="val_loss",
@@ -54,7 +109,7 @@ def kinn_train_fn(model, traindata, epochs, plot=False, verbose=0):
                          batch_size=512,
                          callbacks=[checkpointer, earlystopper],
                          validation_split=0.2, epochs=epochs, verbose=0)
-    model.load_weights('bestmodel.h5')
+    model.load_weights(model_fp)
     if plot:
         plt.figure()
         plt.plot(history.history['loss'], color='blue')
@@ -63,7 +118,7 @@ def kinn_train_fn(model, traindata, epochs, plot=False, verbose=0):
         plt.ylabel('loss', fontsize=12)
         plt.xlabel('epoch', fontsize=12)
         plt.legend(['train', 'validation'])
-        plt.savefig('hist.png')
+        plt.savefig(os.path.join(args.wd, 'hist.png'))
     return model
 
 
@@ -80,7 +135,7 @@ def kinn_test_fn(model, testdata, plot=False):
         ax.set_title('pearson=%.3f' % pcc[0])
         ax.set_xlim(0, 1)
         ax.set_ylim(0, 1)
-        plt.savefig('test.png')
+        plt.savefig(os.path.join(args.wd, 'test.png'))
     return pcc
 
 
@@ -100,37 +155,11 @@ def kinn_interpret_fn(mb):
 
 
 
-# In[2]:
-
-
-kinn_sty = {
-    "axes.titlesize": 18,
-    "axes.labelsize": 20,
-    "lines.linewidth": 1,
-    "lines.markersize": 10,
-    "xtick.labelsize": 20,
-    "ytick.labelsize": 20,
-    "font.size": 18,
-    "font.sans-serif": 'Helvetica',
-    "text.usetex": False,
-    'mathtext.fontset': 'cm',
-}
-plt.style.use(kinn_sty)
 
 
 # ## Setup AMBER
 
-# In[3]:
-
-
-import amber
-print(amber.__version__)
-from amber.architect import pmbga
-from amber.architect import ModelSpace, Operation
-
-
 # In[4]:
-
 
 st_win = np.array([-4, -3, -2, -1, 0, 1, 2, 3, 4])
 kinn_model_space = ModelSpace.from_dict([
@@ -231,10 +260,11 @@ def get_reward_pipeline(param_fp):
     with train_graph.as_default(), train_sess.as_default():
         kinn_test = KineticModel(param_fp)
         kinn_test.build_ka_patterns()
-        mb = KineticNeuralNetworkBuilder(kinn=kinn_test, session=train_sess, n_feats=50, n_channels=4)
+        output_op = Operation('dense', activation="sigmoid", units=1, kernel_initializer="zeros", name="output")
+        mb = KineticNeuralNetworkBuilder(kinn=kinn_test, session=train_sess, n_feats=50, n_channels=4, output_op=output_op)
         mb.build(optimizer='adam', plot=False)
-        #mb.load_data('../test/test_1/test_1.csv')
-        mb.load_data('./data/sim_data/21-11-1_test_1/test_1.csv')
+        #mb.load_data('./data/sim_data/21-11-1_test_1/test_1.csv')
+        mb.load_data(args.data_file)
         # train and test
         model = kinn_train_fn(model=mb.model, traindata=mb.traindata, epochs=25, plot=False, verbose=0)
         test_pcc = kinn_test_fn(model=model, testdata=mb.testdata, plot=False)
@@ -252,18 +282,6 @@ def get_reward_pipeline(param_fp):
 
 
 # ## A fancy For-Loop that does the work for `amber.architect.trainEnv`
-
-# In[7]:
-
-
-# trainEnv parameters
-samps_per_gen = 5   # how many arcs to sample in each generation; important
-max_gen = 600
-epsilon = 0.05
-patience = 200
-n_warmup_gen = -1
-disable_posterior_update = False
-
 
 # In[8]:
 
@@ -301,7 +319,6 @@ for generation in range(max_gen):
         for _ in range(samps_per_gen):
             # get arc
             arc, _ = controller.get_action()
-            #_  = pmbga.convert_model_arc_to_param_file(arc, "test.yaml")
             model_params = modelSpace_to_modelParams(arc)
             # get reward
             test_pcc, rate_df = get_reward_pipeline(model_params)
@@ -339,9 +356,6 @@ for generation in range(max_gen):
             np.mean(post_vars),
             delta,
             end-start), flush=True)
-        #if delta < epsilon:
-        #    print("stop due to convergence criteria")
-        #    break
         pc_cnt = 0 if has_impr else pc_cnt+1
         if pc_cnt >= patience:
             print("early-stop due to max patience w/o improvement")
@@ -354,16 +368,10 @@ for generation in range(max_gen):
 # In[ ]:
 
 
-#pd.DataFrame(hist).sort_values('test_pcc', ascending=False)
-
-
-# In[ ]:
-
-
 a = pd.DataFrame(hist)
 a['arc'] = ['|'.join([f"{x.Layer_attributes['RANGE_ST']}-{x.Layer_attributes['RANGE_ST']+x.Layer_attributes['RANGE_D']}" for x in entry]) for entry in a['arc']]
 a.drop(columns=['rate_df'], inplace=True)
-a.to_csv("train_history.tsv", sep="\t", index=False)
+a.to_csv(os.path.join(args.wd, "train_history.tsv"), sep="\t", index=False)
 
 
 # In[ ]:
@@ -374,7 +382,7 @@ a.to_csv("train_history.tsv", sep="\t", index=False)
 ax = stat_df.plot.line(x='Generation', y=['GenAvg', 'Best'])
 ax.set_ylabel("Reward (Pearson correlation)")
 ax.set_xlabel("Generation")
-plt.savefig("reward_over_time.png")
+plt.savefig(os.path.join(args.wd, "reward_over_time.png"))
 
 # In[ ]:
 
@@ -404,7 +412,7 @@ for k in controller.model_space_probs:
 
         #_ = ax.set_xlim(0,50)
 fig.tight_layout()
-fig.savefig("range_st.png")
+fig.savefig(os.path.join(args.wd, "range_st.png"))
 
 
 # In[ ]:
@@ -430,7 +438,7 @@ for k in controller.model_space_probs:
                 ' '.join(['Rate ID', str(k[0]), '\nPosterior mean', str(np.mean(d))]))
         #_ = ax.set_xlim(0,20)    
 fig.tight_layout()
-fig.savefig("range_d.png")
+fig.savefig(os.path.join(args.wd, "range_d.png"))
 
 # In[ ]:
 
@@ -448,7 +456,7 @@ for k in controller.model_space_probs:
             ' '.join(['Rate ID', str(k[0]), '\nPosterior mean', str(np.mean(d))]))
         #_ = ax.set_xlim(0,20)    
 fig.tight_layout()
-fig.savefig("edge.png")
+fig.savefig(os.path.join(args.wd, "edge.png"))
 
 
 # In[ ]:
