@@ -245,3 +245,79 @@ def get_cas9_finkelstein_ms_with_hidden(use_sink_state=False):
         layer[0].Layer_attributes['hidden_size'] = pmbga.Categorical(choices=[0,3], prior_cnt=[1,1])
         layer[0].Layer_attributes['reshape_fn'] = pmbga.Categorical(choices=[0,1,2], prior_cnt=1)
     return ms
+
+
+def get_sim_model_space(use_sink_state=False):
+    st_win = np.array([-4, -3, -2, -1, 0, 1, 2, 3, 4])
+    kinn_model_space = ModelSpace.from_dict([
+        # k_01
+        [dict(Layer_type='conv1d', kernel_size=1, filters=1, SOURCE='0', TARGET='1', 
+              EDGE=1,
+              RANGE_ST=pmbga.Categorical(choices=5+st_win, prior_cnt=[1]*len(st_win)),
+              #RANGE_D=pmbga.Categorical(choices=5+st_win, prior_cnt=[1]*len(st_win)),
+              RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1), 
+              #RANGE_D=5
+         )],
+        # k_10
+        [dict(Layer_type='conv1d', kernel_size=1, filters=1, SOURCE='1', TARGET='0', 
+              EDGE=pmbga.Binomial(alpha=1, beta=1, n=1),
+              #EDGE=1,
+              RANGE_ST=pmbga.Categorical(choices=10+st_win, prior_cnt=[1]*len(st_win)),
+              #RANGE_D=pmbga.Categorical(choices=5+st_win, prior_cnt=[1]*len(st_win)),
+              RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1),          
+              #RANGE_D=5
+         )],
+        # k_12
+        [dict(Layer_type='conv1d', kernel_size=1, filters=1, SOURCE='1', TARGET='2', 
+              EDGE=1,
+              RANGE_ST=pmbga.Categorical(choices=15+st_win, prior_cnt=[1]*len(st_win)),
+              #RANGE_D=pmbga.Categorical(choices=5+st_win, prior_cnt=[1]*len(st_win)),
+              RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1), 
+              #RANGE_D=5
+         )],
+        # k_21
+        [dict(Layer_type='conv1d', kernel_size=1, filters=1, SOURCE='2', TARGET='1', 
+              EDGE=pmbga.Binomial(alpha=1, beta=1, n=1),
+              #EDGE=1,
+              RANGE_ST=pmbga.Categorical(choices=20+st_win, prior_cnt=[1]*len(st_win)),
+              #RANGE_D=pmbga.Categorical(choices=5+st_win, prior_cnt=[1]*len(st_win)),
+              RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1),             
+              #RANGE_D=5
+         )],
+        # k_23
+        [dict(Layer_type='conv1d', kernel_size=1, filters=1, SOURCE='2', TARGET='3', 
+              EDGE=1,
+              RANGE_ST=pmbga.Categorical(choices=25+st_win, prior_cnt=[1]*len(st_win)),
+              #RANGE_D=pmbga.Categorical(choices=5+st_win, prior_cnt=[1]*len(st_win)),
+              RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1),     
+              #RANGE_D=5
+         )],
+        # k_32
+        [dict(Layer_type='conv1d', kernel_size=1, filters=1, SOURCE='3', TARGET='2', 
+              EDGE=pmbga.Binomial(alpha=1, beta=1, n=1),        
+              #EDGE=1,
+              RANGE_ST=pmbga.Categorical(choices=30+st_win, prior_cnt=[1]*len(st_win)),
+              #RANGE_D=pmbga.Categorical(choices=5+st_win, prior_cnt=[1]*len(st_win)),
+              RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1),          
+              #RANGE_D=5
+         )],
+        # k_30
+        [dict(Layer_type='conv1d', kernel_size=1, filters=1, SOURCE='3', TARGET='4' if use_sink_state else '0', 
+              EDGE=1,
+              RANGE_ST=pmbga.Categorical(choices=35+st_win, prior_cnt=[1]*len(st_win)),
+              #RANGE_D=pmbga.Categorical(choices=5+st_win, prior_cnt=[1]*len(st_win)),
+              RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1), 
+              #RANGE_D=5,
+              CONTRIB=1
+         )],
+        # k_20 [add an optional path to contrib rates w/ prior = 0.5]
+        #[dict(Layer_type='conv1d', kernel_size=1, filters=1, SOURCE='2', TARGET='0', 
+        #      EDGE= pmbga.Binomial(alpha=1, beta=1, n=1),
+        #      RANGE_ST=pmbga.Categorical(choices=20+st_win, prior_cnt=[1]*len(st_win)),
+        #      #RANGE_D=pmbga.ZeroTruncatedNegativeBinomial(alpha=5, beta=1),
+        #      RANGE_D=5,
+        #      CONTRIB=1
+        # )],
+    ])
+    return kinn_model_space
+

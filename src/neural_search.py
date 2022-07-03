@@ -17,7 +17,7 @@ warnings.filterwarnings('ignore')
 
 
 # ## A For-Loop that does the work for `amber.architect.trainEnv`
-def search_env(controller, wd, evo_params, manager_kwargs=None):
+def search_env(controller, wd, evo_params, manager_kwargs=None, disable_posterior_update=False):
     manager_kwargs = manager_kwargs or {}
     # unpack evo params
     samps_per_gen = evo_params.get("samps_per_gen", 10)
@@ -70,7 +70,10 @@ def search_env(controller, wd, evo_params, manager_kwargs=None):
             if generation < n_warmup_gen:
                 print(f"Gen {generation} < {n_warmup_gen} warmup.. skipped - Time %.2f" % (end-start), flush=True)
                 continue
-            _ = controller.train(episode=generation, working_dir=".")
+            if disable_posterior_update is True:
+                controller.buffer.finish_path(controller.model_space, generation, '.')
+            else:
+                _ = controller.train(episode=generation, working_dir=".")
             post_vars = [np.var(x.sample(size=100)) for _, x in controller.model_space_probs.items()]
             stat_df = stat_df.append({
                 'Generation': generation,
