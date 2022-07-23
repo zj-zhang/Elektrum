@@ -10,6 +10,7 @@ date=$(date '+%Y-%m-%d')
 target=$1
 fid=$2
 use_sink_state=$3
-mkdir -p outputs/sim/$date/$target-$fid"$use_sink_state"
-python src/runAmber_simkinn.py --max-gen 200 --patience 50 --samps-per-gen 5 \
-       	--wd outputs/sim/$date/$target-$fid"$use_sink_state" --data-file ./data/sim_data/$target/data.tsv --param-file ./data/sim_data/$target/params.yaml $use_sink_state #> outputs/sim/$date/$target-$fid"$use_sink_state"/log.txt
+disable_post=$4
+mkdir -p outputs/sim/$date/$target-$fid"$use_sink_state""$disable_post"
+python src/runAmber_simkinn.py --max-gen 300 --patience 300 --samps-per-gen 5 \
+       	--wd outputs/sim/$date/$target-$fid"$use_sink_state""$disable_post" --data-file ./data/sim_data/$target/data.tsv --param-file ./data/sim_data/$target/params.yaml $use_sink_state $disable_post > outputs/sim/$date/$target-$fid"$use_sink_state""$disable_post"/log.txt
