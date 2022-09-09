@@ -71,9 +71,9 @@ def search_env(controller, wd, evo_params, manager_kwargs=None, disable_posterio
                 print(f"Gen {generation} < {n_warmup_gen} warmup.. skipped - Time %.2f" % (end-start), flush=True)
                 continue
             if disable_posterior_update is True:
-                controller.buffer.finish_path(controller.model_space, generation, '.')
+                controller.buffer.finish_path(controller.model_space, generation, working_dir=wd)
             else:
-                _ = controller.train(episode=generation, working_dir=".")
+                _ = controller.train(episode=generation, working_dir=wd)
             post_vars = [np.var(x.sample(size=100)) for _, x in controller.model_space_probs.items()]
             stat_df = stat_df.append({
                 'Generation': generation,

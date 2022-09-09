@@ -52,7 +52,7 @@ Data:
         model_params['Rates'].append(tmp)
         if arc.Layer_attributes.get('CONTRIB', False):
             model_params['Data']['contrib_rate_names'].append(rate_name)
-    model_params['States'] = list(model_params['States'])
+    model_params['States'] = sorted(list(model_params['States']))
     return model_params
 
 

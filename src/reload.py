@@ -9,7 +9,7 @@ import numpy as np
 from amber.utils import run_from_ipython
 import copy
 
-def reload_from_dir(wd, manager_kwargs, sess=None, model_fn=None, load_weights=True):
+def reload_from_dir(wd, manager_kwargs, sess=None, model_fn=None, load_weights=True, verbose=False):
     # unpack keyword args
     n_channels = manager_kwargs.get("n_channels", 9)
     n_feats = manager_kwargs.get("n_feats", 25)
@@ -29,12 +29,8 @@ def reload_from_dir(wd, manager_kwargs, sess=None, model_fn=None, load_weights=T
     opt = opt() if opt else 'adam'
     mb.build(optimizer=opt, plot=False, output_act=False)
     if load_weights is True:
-        try: # prioritize loading linear offset model
-            mb.model.load_weights(os.path.join(wd, "bestmodel_linear_offset.h5"))
-            print("loaded linear_offset model")
-        except:
-            print("loaded searched model")
-            mb.model.load_weights(os.path.join(wd, "AmberSearchBestModel.h5"))
+        if verbose: print("loaded searched model")
+        mb.model.load_weights(os.path.join(wd, "AmberSearchBestModel.h5"))
     #mb.model.summary()
     return mb
 
