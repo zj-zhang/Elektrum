@@ -6,8 +6,9 @@
 #SBATCH --time 2-0:00:00
 
 export PYTHONPATH="."
+date=$(date '+%Y-%m-%d')
 target=$1
-id=$2
-switch=$3
-mkdir -p outputs/CNN-$target-$id
-python notebooks/runAmber_cnn.py --target $target --wd outputs/CNN-$target-$id --switch $switch > outputs/CNN-$target-$id/log.txt
+fid=$3
+switch=$2
+mkdir -p outputs/$date/CNN-$target-$fid
+python src/runAmber_cnn.py --target $target --wd outputs/$date/CNN-$target-$fid --switch $switch > outputs/$date/CNN-$target-$fid/log.txt

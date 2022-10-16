@@ -6,8 +6,7 @@ while getopts 'abcd:h' opt; do
 	echo "Submit simulated runs"
 	# 1. Amber Kinn on simulated data
 	for i in `seq 1 3`; do
-		#sbatch -J ka_ka$i sbatch_AmberSimKinn.sh 21-11-1_test_1 rep$i
-		#sbatch -J ka_noka$i sbatch_AmberSimKinn.sh 21-11-1_test_1 rep$i --disable-posterior
+		#sbatch -J ka_ka$i sbatch_AmberSimKinn.sh 21-11-1_test_1 rep$i #sbatch -J ka_noka$i sbatch_AmberSimKinn.sh 21-11-1_test_1 rep$i --disable-posterior
 		#sbatch -J del_ka$i sbatch_AmberSimKinn.sh 22-06-28_synth_data_depl rep$i
 		#sbatch -J del_noka$i sbatch_AmberSimKinn.sh 22-06-28_synth_data_depl rep$i --disable-posterior
 		sbatch -J del_eig$i sbatch_AmberSimKinn.sh 22-06-28_synth_data_depl rep$i --use-sink-state
@@ -17,7 +16,7 @@ while getopts 'abcd:h' opt; do
     b)
 	echo "Submit Cas9 w/ Finkelstein model space runs"
 	# 2. Amber Kinn - Finkelstein model space
-	for i in `seq 1 3`; do
+	for i in `seq 1 5`; do
 		sbatch -J wt-f-0$i sbatch_AmberKinn.sh wtCas9_cleave_rate_log finkelstein 0 0 rep$i-gRNA1
 		sbatch -J wt-f-1$i sbatch_AmberKinn.sh wtCas9_cleave_rate_log finkelstein 0 1 rep$i-gRNA2
 		#sbatch -J wt-f-0$i sbatch_AmberKinn.sh wtCas9_cleave_rate_log finkelstein 0 0 rep$i-gRNA1 --use-sink-state
@@ -35,10 +34,14 @@ while getopts 'abcd:h' opt; do
 	done
 	;;
     d)
-	echo "Submit Cas9 w/ Uniform model space runs"
+	echo "Submit Cas9 CNN"
 	# 4. Amber Cnn
-	sbatch -J wt0 sbatch_AmberCnn.sh wtCas9_cleave_rate_log 0 0
-	sbatch -J wt1 sbatch_AmberCnn.sh wtCas9_cleave_rate_log 1 1
+	for i in `seq 1 5`; do
+		sbatch -J wt0_$i sbatch_AmberCnn.sh wtCas9_cleave_rate_log 0 rep$i-gRNA1
+		sbatch -J wt1_$i sbatch_AmberCnn.sh wtCas9_cleave_rate_log 1 rep$i-gRNA2
+	done
+	#sbatch -J wt0 sbatch_AmberCnn.sh wtCas9_cleave_rate_log 0 0
+	#sbatch -J wt1 sbatch_AmberCnn.sh wtCas9_cleave_rate_log 1 1
 	;;
     ?|h)
         echo "Usage: $(basename $0) [-a] [-b] [-c] [-d]"

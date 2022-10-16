@@ -117,11 +117,19 @@ def get_model_space_long():
     return state_space, layer_embedding_sharing
 
 
+def robust_pearsonr(y_true, y_score): 
+    reward = ss.pearsonr(y_true, y_score.flatten())[0]
+    if np.isnan(reward):
+        reward = 0
+    return reward
+
 
 def amber_app(wd, target="wtCas9_cleave_rate_log", make_switch=False, run=False):
     # First, define the components we need to use
     print("switch gRNA_1 to testing and gRNA_2 to training:", make_switch)
-    x1_train, y1_train, x1_test, y1_test, x2_train, y2_train, x2_test, y2_test = get_data(target=target, make_switch=make_switch)
+    res = get_data(target=target, make_switch=make_switch, logbase=10, include_ref=False)
+    # unpack data tuple
+    (x_train, y_train), (x_test, y_test) = res
     type_dict = {
         'controller_type': 'GeneralController',
         'knowledge_fn_type': 'zero',
@@ -183,12 +191,12 @@ def amber_app(wd, target="wtCas9_cleave_rate_log", make_switch=False, run=False)
 
         'knowledge_fn': {'data': None, 'params': {}},
 
-        'reward_fn': {'method': lambda y_true, y_score: ss.pearsonr(y_true, y_score.flatten())[0]},
+        'reward_fn': {'method': robust_pearsonr},
 
         'manager': {
             'data': {
-                'train_data': (x1_train, y1_train),
-                'validation_data': (x2_train, y2_train),
+                'train_data': (x_train, y_train),
+                'validation_data': (x_test, y_test),
             },
             'params': {
                 'epochs': 400,
