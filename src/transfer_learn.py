@@ -12,7 +12,7 @@ import os
 import pickle
 import h5py
 from src.neural_network_builder import KineticNeuralNetworkBuilder
-from src.kinetic_model import KineticModel
+from src.kinetic_model import KineticModel, modelSpace_to_modelParams
 from amber.modeler.dag import get_layer
 from amber.modeler import ModelBuilder
 
@@ -23,7 +23,7 @@ import copy
 import numpy as np
 import scipy.stats as ss
 from sklearn.model_selection import train_test_split
-from tensorflow.keras.optimizers import SGD, Adam
+from tensorflow.keras.optimizers import Adam
 import argparse
 import pickle
 from src.data import load_finkelstein_data as get_data
@@ -152,30 +152,21 @@ def get_model_space_kinn():
     param_list = [
             # Block 1:
             [
-                {"filters": 16, "kernel_size": 1, "activation": "relu", "padding": "valid"},
-                {"filters": 16, "kernel_size": 3, "activation": "relu", "padding": "valid"},
-                {"filters": 16, "kernel_size": 7, "activation": "relu", "padding": "valid"},
-                {"filters": 16, "kernel_size": 1, "activation": "tanh", "padding": "valid"},
-                {"filters": 16, "kernel_size": 3, "activation": "tanh", "padding": "valid"},
-                {"filters": 16, "kernel_size": 7, "activation": "tanh", "padding": "valid"},
+                {"filters": 16, "kernel_size": 1, "activation": "relu", "padding": "valid", "name": "conv11"},
+                {"filters": 16, "kernel_size": 3, "activation": "relu", "padding": "valid", "name": "conv13"},
+                {"filters": 16, "kernel_size": 7, "activation": "relu", "padding": "valid", "name": "conv17"},
             ],
             # Block 2:
             [
-                {"filters": 64, "kernel_size": 1, "activation": "relu", "padding": "valid"},
-                {"filters": 64, "kernel_size": 3, "activation": "relu", "padding": "valid"},
-                {"filters": 64, "kernel_size": 7, "activation": "relu", "padding": "valid"},
-                {"filters": 64, "kernel_size": 1, "activation": "tanh", "padding": "valid"},
-                {"filters": 64, "kernel_size": 3, "activation": "tanh", "padding": "valid"},
-                {"filters": 64, "kernel_size": 7, "activation": "tanh", "padding": "valid"},
+                {"filters": 64, "kernel_size": 1, "activation": "relu", "padding": "valid", "name": "conv21"},
+                {"filters": 64, "kernel_size": 3, "activation": "relu", "padding": "valid", "name": "conv23"},
+                {"filters": 64, "kernel_size": 7, "activation": "relu", "padding": "valid", "name": "conv27"},
             ],
             # Block 3:
             [
-                {"filters": 256, "kernel_size": 1, "activation": "relu", "padding": "valid"},
-                {"filters": 256, "kernel_size": 3, "activation": "relu", "padding": "valid"},
-                {"filters": 256, "kernel_size": 7, "activation": "relu", "padding": "valid"},
-                {"filters": 256, "kernel_size": 1, "activation": "tanh", "padding": "valid"},
-                {"filters": 256, "kernel_size": 3, "activation": "tanh", "padding": "valid"},
-                {"filters": 256, "kernel_size": 7, "activation": "tanh", "padding": "valid"},
+                {"filters": 256, "kernel_size": 1, "activation": "relu", "padding": "valid", "name": "conv31"},
+                {"filters": 256, "kernel_size": 3, "activation": "relu", "padding": "valid", "name": "conv33"},
+                {"filters": 256, "kernel_size": 7, "activation": "relu", "padding": "valid", "name": "conv37"},
 
             ],
         ]
@@ -190,11 +181,11 @@ def get_model_space_kinn():
             d = copy.deepcopy(default_params)
             for k, v in param_list[i][j].items():
                 d[k] = v
-            conv_states.append(Operation('conv1d', name="conv{}".format(conv_seen), **d))
+            conv_states.append(Operation('conv1d', **d))
         if conv_seen > 0:
-            conv_states.append(Operation('identity', name="id{}".format(conv_seen)))
+            conv_states.append(Operation('identity'))
         else:
-            conv_states.append(Operation('conv1d', name="conv{}".format(conv_seen), activation="linear", filters=16, kernel_size=1))
+            conv_states.append(Operation('conv1d', activation="linear", filters=16, kernel_size=1, name='conv1_lin'))
 
         state_space.add_layer(conv_seen*2, conv_states)
         if i > 0:
@@ -211,7 +202,6 @@ def get_model_space_kinn():
             state_space.add_layer(conv_seen*2-1, bidirectional)
             pool_states = [
                     Operation('Flatten'),
-                    Operation('GlobalMaxPool1D'),
                     Operation('GlobalAvgPool1D'),
                 ]
             state_space.add_layer(conv_seen*2, pool_states)
@@ -230,22 +220,28 @@ def get_model_space_kinn():
     state_space.add_layer(conv_seen*2+1, [
             lambda: KinnLayer(kinn_dir="outputs/2022-05-21/KINN-wtCas9_cleave_rate_log-finkelstein-0-rep4-gRNA1/", 
                 manager_kws={'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(x)/np.log(10), name="output")},
-                channels=np.arange(4,13)),
+                channels=np.arange(4,13),
+                name="kinn_f41"),
             lambda: KinnLayer(kinn_dir="outputs/2022-05-21/KINN-wtCas9_cleave_rate_log-finkelstein-0-rep5-gRNA2/", 
                 manager_kws={'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(x)/np.log(10), name="output")},
-                channels=np.arange(4,13)),
+                channels=np.arange(4,13),
+                name="kinn_f42"),
             lambda: KinnLayer(kinn_dir="outputs/2022-05-30/KINN-wtCas9_cleave_rate_log-uniform-5-rep3-gRNA1/", 
                 manager_kws={'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(x)/np.log(10), name="output")},
-                channels=np.arange(4,13)),
+                channels=np.arange(4,13),
+                name="kinn_u51"),
             lambda: KinnLayer(kinn_dir="outputs/2022-05-30/KINN-wtCas9_cleave_rate_log-uniform-5-rep3-gRNA2/", 
                 manager_kws={'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(x)/np.log(10), name="output")},
-                channels=np.arange(4,13)),
+                channels=np.arange(4,13),
+                name="kinn_u52"),
             lambda: KinnLayer(kinn_dir="outputs/2022-05-30/KINN-wtCas9_cleave_rate_log-uniform-5-rep2-gRNA2/", 
                 manager_kws={'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(x)/np.log(10), name="output")},
-                channels=np.arange(4,13)),
+                channels=np.arange(4,13),
+                name="kinn_u61"),
             lambda: KinnLayer(kinn_dir="outputs/2022-05-30/KINN-wtCas9_cleave_rate_log-uniform-6-rep2-gRNA2/", 
                 manager_kws={'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(x)/np.log(10), name="output")},
-                channels=np.arange(4,13)),
+                channels=np.arange(4,13),
+                name="kinn_u62"),
         ])
     return state_space, layer_embedding_sharing
 
@@ -281,7 +277,10 @@ class TransferKinnModelBuilder(ModelBuilder):
 
         out = get_layer(x, self.output_node)
         model = tf.keras.models.Model(inputs=inp, outputs=out)
-        model.compile(**self.model_compile_dict)
+        model_compile_dict = copy.deepcopy(self.model_compile_dict)
+        opt = model_compile_dict.pop('optimizer')()
+        metrics = [x() if callable(x) else x for x in model_compile_dict.pop('metrics', [])]
+        model.compile(optimizer=opt, metrics=metrics, **model_compile_dict)
         return model
 
 
@@ -316,15 +315,19 @@ def amber_app(wd, run=False):
             Operation('dense', units=1, activation='sigmoid', name="output_final")
             ]
 
-    model_compile_dict = {
-        'loss': 'binary_crossentropy',
-        'optimizer': Adam(lr=0.0001),
-        'metrics': ['acc']
-    }
-
     model_space, layer_embedding_sharing = get_model_space_kinn()
     batch_size = 25000
     use_ppo = False
+
+    #lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
+    #    initial_learning_rate=0.0005,
+    #    decay_steps=int(1000000/batch_size)*20,  # decay lr every 20 epochs
+    #    decay_rate=0.9)
+    model_compile_dict = {
+        'loss': 'binary_crossentropy',
+        'optimizer': lambda: Adam(lr=0.0005),
+        'metrics': ['acc', lambda: tf.keras.metrics.AUC(curve='PR')]
+    }
 
     specs = {
         'model_space': model_space,
@@ -341,7 +344,7 @@ def amber_app(wd, run=False):
                 'rescale_advantage_by_reward': False,
                 'temperature': 2.0,
                 'tanh_constant': 1.5,
-                'buffer_size': 3,  # FOR RL-NAS
+                'buffer_size': 5,  # FOR RL-NAS
                 'batch_size': 5,
                 'use_ppo_loss': use_ppo
         },
@@ -363,9 +366,9 @@ def amber_app(wd, run=False):
                 'validation_data': (x_valid, y_valid),
             },
             'params': {
-                'epochs': 200,
+                'epochs': 400,
                 'fit_kwargs': {
-                    'earlystop_patience': 20,
+                    'earlystop_patience': 5,
                     #'max_queue_size': 50,
                     #'workers': 4
                     #"class_weight": {0:1., 1:10.}
@@ -379,7 +382,7 @@ def amber_app(wd, run=False):
 
         'train_env': {
             'max_episode': 150,
-            'max_step_per_ep': 5,
+            'max_step_per_ep': 3,
             'working_dir': wd,
             'time_budget': "48:00:00",
             'with_skip_connection': False,
@@ -401,11 +404,14 @@ if __name__ == '__main__':
         parser.add_argument("--wd", type=str, help="working directory")
 
         args = parser.parse_args()
-        pickle.dump(args, open(os.path.join(args.wd, "args.pkl"), "wb"))
-        make_switch = args.switch!=0
-        amber_app(
-                wd=args.wd,
-                target=args.target,
-                make_switch=make_switch,
-                run=True
-                )
+        amber_app(wd=args.wd, run=True)
+
+# Or, run this in ipython terminal:
+"""
+%run src/transfer_learn
+
+amb = amber_app(wd="outputs/test_tl_amber")
+amb.manager.verbose = 1
+amb.run()
+
+"""
