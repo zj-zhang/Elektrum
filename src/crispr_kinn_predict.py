@@ -5,8 +5,6 @@ FZZ, 2022.03.15
 
 import numpy as np
 import pandas as pd
-from Bio import pairwise2
-from Bio.Seq import Seq
 import warnings
 from src.reload import reload_from_dir
 from src.neural_network_builder import KineticNeuralNetworkBuilder, KineticEigenModelBuilder
@@ -18,7 +16,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics import average_precision_score, roc_auc_score
 import scipy.stats as ss
-
+from src.encode_seq import get_letter_index, make_alignment, featurize_alignment
 
 config = {
     'kinn_1': "outputs/bak_20220515/KINN-wtCas9_cleave_rate_log-finkelstein-0-rep2-gRNA1",
@@ -50,76 +48,6 @@ manager_kwargs={
     'earlystop': 10,
     'verbose': 0
 }
-
-def get_letter_index(build_indel=True):
-    # pre-defined letter index
-    # match : 4 letters, 0-3
-    ltidx = {(x,x):i for i,x in enumerate('ACGT')}
-    # substitution : x->y, 4-7
-    ltidx.update({(x,y):(ltidx[(x,x)], i+4) for x in 'ACGT' for i, y in enumerate('ACGT') if y!=x })
-    if build_indel:
-        # insertion : NA->y, 8-11
-        ltidx.update({('-', x):i+8 for i,x in enumerate('ACGT')})
-        ltidx.update({('_', x):i+8 for i,x in enumerate('ACGT')})
-        # deletion : x->NA, 12
-        ltidx.update({(x,'-'):(ltidx[(x,x)], 12) for i,x in enumerate('ACGT')})
-        ltidx.update({(x,'_'):(ltidx[(x,x)], 12) for i,x in enumerate('ACGT')})
-    return ltidx
-
-
-def make_alignment(ref, alt, maxlen=25):
-    alt = Seq(alt)
-    alt = alt[::-1]
-    ref = ref[::-1]
-    # m: A match score is the score of identical chars, otherwise mismatch score
-    # d: The sequences have different open and extend gap penalties.
-    aln = pairwise2.align.localxd(ref, alt, -1, -0.1, -1, 0)
-    if len(aln[0][0]) > maxlen: # increase gap open penalty to avoid too many gaps
-        aln = pairwise2.align.localxd(ref, alt, -5, -0.1, -5, 0)
-        if len(aln[0][0]) > maxlen:
-            aln = [(ref, alt)]
-    return aln[0]
-
-
-def featurize_alignment(alignments, ltidx, build_indel=True, include_ref=False, maxlen=25, verbose=False):
-    mats = []
-    for j, aln in enumerate(alignments):
-        if build_indel:
-            fea = np.zeros((maxlen, 13))
-        else:
-            fea = np.zeros((maxlen, 8))
-        assert len(aln[0]) <= maxlen, "alignment {} larger than maxlen: {}".format(j, aln)
-        if build_indel is False and ('-' in aln[0] or '-' in aln[1]):
-            mats.append(None)
-        else:
-            p = 0
-            for i in range(len(aln[0])):
-                k = (aln[0][i], aln[1][i])
-                if not k in ltidx:
-                    if verbose:
-                        warnings.warn("found alignment not in letter, sample %i" %j)
-                    p += 1
-                    continue
-                #fea[p, ltidx[k]] = 1
-                #p += 1
-                if k[0]=="-" or k[1]=="-": # is indel
-                    #if build_indel:
-                    #    fea[p, ltidx[k]] = 1
-                    #    p += 1
-                    if k[1]=="-": # target has gap - deletion
-                        fea[p, ltidx[k]] = 1
-                        p += 1
-                    else:           # gRNA has gap - insertion
-                        fea[max(0,p-1), ltidx[k]] = 1
-                else:
-                    fea[p, ltidx[k]] = 1
-                    p += 1
-                if verbose: print(k, p)
-            mats.append(fea)
-    mats = np.array(mats)
-    if include_ref is False:
-        mats = mats[:, :, 4:]
-    return mats
 
 
 def plot_dataframe(data):

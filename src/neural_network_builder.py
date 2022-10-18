@@ -147,7 +147,7 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
         king_altman = Lambda(lambda x: tf.nn.softmax(
             tf.matmul(x, tf.constant(self.kinn.get_ka_pattern_mat().transpose(), dtype=tf.float32))),
             name="KingAltman")(concat)
-        return king_altman
+        return concat, king_altman
 
     def _build_activity(self, rates, king_altman):
         # build activity
@@ -203,7 +203,7 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
 
         return output
 
-    def build(self, optimizer=None, output_act=False, plot=False):
+    def build(self, optimizer=None, output_act=False, plot=False, return_intermediate=False):
         """build the machine learning model
 
         Parameters
@@ -216,8 +216,14 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
         """
         inputs_op = self._build_inputs()
         rates = self._build_rates(inputs_op)
-        king_altman = self._build_king_altman(rates)
+        gather_rates, king_altman = self._build_king_altman(rates)
         activity = self._build_activity(rates, king_altman)
+        if return_intermediate:
+            return {
+                'inputs_op': inputs_op, 
+                'gather_rates': gather_rates, 
+                'KingAltman': king_altman, 
+                'activity': activity}
         optimizer = optimizer or SGD(lr=0.1, momentum=0.95, decay=1e-5, clipnorm=1.0)
         if output_act is True:
             self.model = Model([inputs_op[j] for j in inputs_op], [
