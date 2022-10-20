@@ -3,7 +3,7 @@
 #SBATCH --partition=gpu
 ##SBATCH --partition=genx
 #SBATCH -c 4 --mem=64gb
-#SBATCH --time 2-0:00:00
+#SBATCH --time 3-15:00:00
 
 export PYTHONPATH="."
 date=$(date '+%Y-%m-%d')

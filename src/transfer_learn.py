@@ -51,9 +51,6 @@ class KinnLayer(tf.keras.layers.Layer):
         })
         return config
     
-    def load_h5py(self):
-        pass
-
     def build(self, input_shape):
         assert isinstance(input_shape, (tuple,list)) and len(input_shape) == 2, TypeError("Expect a list of (hidden, input); got %s for kinn input shape" % input_shape)
         super().build(input_shape=input_shape)
@@ -115,10 +112,18 @@ class KinnLayer(tf.keras.layers.Layer):
             trainable=True)
 
         # check for kinn trainability
-        if self.kinn_trainable is False:
-            for layer in self.kinn_header.layers:
-                layer.trainable = False
+        for layer in self.kinn_header.layers:
+            layer.trainable = self.kinn_trainable
 
+    def kinn_body(self, rates):
+        king_altman = tf.nn.softmax(tf.matmul(rates, self.king_altman_const))
+        k = [x[0] for x in self.rate_contrib_map]
+        rate_index = [x[1] for x in self.rate_contrib_map]
+        rate_layer = tf.math.exp(tf.gather(rates, rate_index, axis=-1))
+        ka_slice = tf.gather(king_altman, k, axis=-1)
+        activity = tf.reduce_prod(rate_layer * ka_slice, axis=-1, keepdims=True)
+        output = get_layer(x=activity, state=self.output_op, with_bn=False)
+        return output
 
     def call(self, inputs):
         hidden, seq_ohe = inputs[0], inputs[1]
@@ -134,13 +139,7 @@ class KinnLayer(tf.keras.layers.Layer):
         rates = rates + delta
 
         # kinn_body is implemented in forward pass
-        king_altman = tf.nn.softmax(tf.matmul(rates, self.king_altman_const))
-        k = [x[0] for x in self.rate_contrib_map]
-        rate_index = [x[1] for x in self.rate_contrib_map]
-        rate_layer = tf.math.exp(tf.gather(rates, rate_index, axis=-1))
-        ka_slice = tf.gather(king_altman, k, axis=-1)
-        activity = tf.reduce_prod(rate_layer * ka_slice, axis=-1, keepdims=True)
-        output = get_layer(x=activity, state=self.output_op, with_bn=False)
+        output = self.kinn_body(rates)
         return output
 
 
@@ -219,27 +218,27 @@ def get_model_space_kinn():
     # Add final KINN layer.
     state_space.add_layer(conv_seen*2+1, [
             lambda: KinnLayer(kinn_dir="outputs/2022-05-21/KINN-wtCas9_cleave_rate_log-finkelstein-0-rep4-gRNA1/", 
-                manager_kws={'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(x)/np.log(10), name="output")},
+                manager_kws={'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(x, 10**-7, 10**-1))/np.log(10), name="output")},
                 channels=np.arange(4,13),
                 name="kinn_f41"),
             lambda: KinnLayer(kinn_dir="outputs/2022-05-21/KINN-wtCas9_cleave_rate_log-finkelstein-0-rep5-gRNA2/", 
-                manager_kws={'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(x)/np.log(10), name="output")},
+                manager_kws={'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(x, 10**-7, 10**-1))/np.log(10), name="output")},
                 channels=np.arange(4,13),
                 name="kinn_f42"),
             lambda: KinnLayer(kinn_dir="outputs/2022-05-30/KINN-wtCas9_cleave_rate_log-uniform-5-rep3-gRNA1/", 
-                manager_kws={'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(x)/np.log(10), name="output")},
+                manager_kws={'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(x, 10**-7, 10**-1))/np.log(10), name="output")},
                 channels=np.arange(4,13),
                 name="kinn_u51"),
             lambda: KinnLayer(kinn_dir="outputs/2022-05-30/KINN-wtCas9_cleave_rate_log-uniform-5-rep3-gRNA2/", 
-                manager_kws={'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(x)/np.log(10), name="output")},
+                manager_kws={'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(x, 10**-7, 10**-1))/np.log(10), name="output")},
                 channels=np.arange(4,13),
                 name="kinn_u52"),
             lambda: KinnLayer(kinn_dir="outputs/2022-05-30/KINN-wtCas9_cleave_rate_log-uniform-5-rep2-gRNA2/", 
-                manager_kws={'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(x)/np.log(10), name="output")},
+                manager_kws={'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(x, 10**-7, 10**-1))/np.log(10), name="output")},
                 channels=np.arange(4,13),
                 name="kinn_u61"),
             lambda: KinnLayer(kinn_dir="outputs/2022-05-30/KINN-wtCas9_cleave_rate_log-uniform-6-rep2-gRNA2/", 
-                manager_kws={'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(x)/np.log(10), name="output")},
+                manager_kws={'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(x, 10**-7, 10**-1))/np.log(10), name="output")},
                 channels=np.arange(4,13),
                 name="kinn_u62"),
         ])
@@ -312,7 +311,7 @@ def amber_app(wd, run=False):
             ]
 
     output_node = [
-            Operation('dense', units=1, activation='sigmoid', name="output_final")
+            Operation('dense', units=1, activation='sigmoid', name="output_final", kernel_constraint=tf.keras.constraints.NonNeg())
             ]
 
     model_space, layer_embedding_sharing = get_model_space_kinn()
@@ -320,12 +319,13 @@ def amber_app(wd, run=False):
     use_ppo = False
 
     #lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
-    #    initial_learning_rate=0.0005,
-    #    decay_steps=int(1000000/batch_size)*20,  # decay lr every 20 epochs
-    #    decay_rate=0.9)
+    #    initial_learning_rate=0.005,
+    #    decay_steps=int(1000000/batch_size)*20,  # decay lr every 10 epochs
+    #    decay_rate=0.9,
+    #    staircase=True)
     model_compile_dict = {
         'loss': 'binary_crossentropy',
-        'optimizer': lambda: Adam(lr=0.0005),
+        'optimizer': lambda: Adam(lr=0.005),
         'metrics': ['acc', lambda: tf.keras.metrics.AUC(curve='PR')]
     }
 
@@ -358,7 +358,10 @@ def amber_app(wd, run=False):
 
         'knowledge_fn': {'data': None, 'params': {}},
 
-        'reward_fn': {'method': 'aupr'},
+        'reward_fn': {
+            'method': 'aupr', 
+            'batch_size': batch_size,
+        },
 
         'manager': {
             'data': {
@@ -366,13 +369,16 @@ def amber_app(wd, run=False):
                 'validation_data': (x_valid, y_valid),
             },
             'params': {
-                'epochs': 400,
+                'epochs': 150,
                 'fit_kwargs': {
-                    'earlystop_patience': 5,
+                    'earlystop_patience': 10,
                     #'max_queue_size': 50,
                     #'workers': 4
                     #"class_weight": {0:1., 1:10.}
                     },
+                'predict_kwargs': {
+                    'batch_size': batch_size
+                },
                 'child_batchsize': batch_size,
                 'store_fn': 'model_plot',
                 'working_dir': wd,
@@ -384,7 +390,7 @@ def amber_app(wd, run=False):
             'max_episode': 150,
             'max_step_per_ep': 3,
             'working_dir': wd,
-            'time_budget': "48:00:00",
+            'time_budget': "72:00:00",
             'with_skip_connection': False,
             'save_controller_every': 1
         }

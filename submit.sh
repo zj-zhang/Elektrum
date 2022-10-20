@@ -1,6 +1,6 @@
 #!/bin/bash
 
-while getopts 'abcd:h' opt; do
+while getopts 'abcde:h' opt; do
   case "$opt" in
     a)
 	echo "Submit simulated runs"
@@ -40,8 +40,13 @@ while getopts 'abcd:h' opt; do
 		sbatch -J wt0_$i sbatch_AmberCnn.sh wtCas9_cleave_rate_log 0 rep$i-gRNA1
 		sbatch -J wt1_$i sbatch_AmberCnn.sh wtCas9_cleave_rate_log 1 rep$i-gRNA2
 	done
-	#sbatch -J wt0 sbatch_AmberCnn.sh wtCas9_cleave_rate_log 0 0
-	#sbatch -J wt1 sbatch_AmberCnn.sh wtCas9_cleave_rate_log 1 1
+	;;
+	e)
+	echo "Submit Transfer Learning CNN+KINN"
+	# 5. Amber Transfer Learning CNN+KINN
+	for i in `seq 1 3`; do
+		sbatch -J TL$i sbatch_AmberTL.sh TL_$i
+	done
 	;;
     ?|h)
         echo "Usage: $(basename $0) [-a] [-b] [-c] [-d]"
