@@ -41,7 +41,7 @@ while getopts 'abcde:h' opt; do
 		sbatch -J wt1_$i sbatch_AmberCnn.sh wtCas9_cleave_rate_log 1 rep$i-gRNA2
 	done
 	;;
-	e)
+    e)
 	echo "Submit Transfer Learning CNN+KINN"
 	# 5. Amber Transfer Learning CNN+KINN
 	for i in `seq 1 3`; do

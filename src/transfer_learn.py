@@ -148,25 +148,28 @@ def get_model_space_kinn():
     # Setup and params.
     state_space = ModelSpace()
     default_params = {}
+    base_filter = 32
     param_list = [
             # Block 1:
             [
-                {"filters": 16, "kernel_size": 1, "activation": "relu", "padding": "valid", "name": "conv11"},
-                {"filters": 16, "kernel_size": 3, "activation": "relu", "padding": "valid", "name": "conv13"},
-                {"filters": 16, "kernel_size": 7, "activation": "relu", "padding": "valid", "name": "conv17"},
+                {"filters": base_filter, "kernel_size": 1, "activation": "relu", "padding": "valid", "name": "conv11"},
+                {"filters": base_filter, "kernel_size": 3, "activation": "relu", "padding": "valid", "name": "conv13"},
+                {"filters": base_filter, "kernel_size": 7, "activation": "relu", "padding": "valid", "name": "conv17"},
+                {"filters": base_filter, "kernel_size": 3, "activation": "relu", "padding": "valid", "dilation_rate": 4, "name": "conv13d4"},
             ],
             # Block 2:
             [
-                {"filters": 64, "kernel_size": 1, "activation": "relu", "padding": "valid", "name": "conv21"},
-                {"filters": 64, "kernel_size": 3, "activation": "relu", "padding": "valid", "name": "conv23"},
-                {"filters": 64, "kernel_size": 7, "activation": "relu", "padding": "valid", "name": "conv27"},
+                {"filters": base_filter*4, "kernel_size": 1, "activation": "relu", "padding": "valid", "name": "conv21"},
+                {"filters": base_filter*4, "kernel_size": 3, "activation": "relu", "padding": "valid", "name": "conv23"},
+                {"filters": base_filter*4, "kernel_size": 7, "activation": "relu", "padding": "valid", "name": "conv27"},
+                {"filters": base_filter*4, "kernel_size": 3, "activation": "relu", "padding": "valid", "dilation_rate": 4, "name": "conv23d4"},
             ],
             # Block 3:
             [
-                {"filters": 256, "kernel_size": 1, "activation": "relu", "padding": "valid", "name": "conv31"},
-                {"filters": 256, "kernel_size": 3, "activation": "relu", "padding": "valid", "name": "conv33"},
-                {"filters": 256, "kernel_size": 7, "activation": "relu", "padding": "valid", "name": "conv37"},
-
+                {"filters": base_filter*16, "kernel_size": 1, "activation": "relu", "padding": "valid", "name": "conv31"},
+                {"filters": base_filter*16, "kernel_size": 3, "activation": "relu", "padding": "valid", "name": "conv33"},
+                {"filters": base_filter*16, "kernel_size": 7, "activation": "relu", "padding": "valid", "name": "conv37"},
+                {"filters": base_filter*16, "kernel_size": 3, "activation": "relu", "padding": "valid", "dilation_rate": 4, "name": "conv33d4"},
             ],
         ]
 
@@ -217,15 +220,17 @@ def get_model_space_kinn():
 
     # Add final KINN layer.
     state_space.add_layer(conv_seen*2+1, [
+            # state 4
             lambda: KinnLayer(kinn_dir="outputs/2022-05-21/KINN-wtCas9_cleave_rate_log-finkelstein-0-rep4-gRNA1/", 
                 manager_kws={'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(x, 10**-7, 10**-1))/np.log(10), name="output")},
                 channels=np.arange(4,13),
                 name="kinn_f41"),
-            lambda: KinnLayer(kinn_dir="outputs/2022-05-21/KINN-wtCas9_cleave_rate_log-finkelstein-0-rep5-gRNA2/", 
+            lambda: KinnLayer(kinn_dir="outputs/2022-05-21/KINN-wtCas9_cleave_rate_log-finkelstein-0-rep1-gRNA2/", 
                 manager_kws={'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(x, 10**-7, 10**-1))/np.log(10), name="output")},
                 channels=np.arange(4,13),
                 name="kinn_f42"),
-            lambda: KinnLayer(kinn_dir="outputs/2022-05-30/KINN-wtCas9_cleave_rate_log-uniform-5-rep3-gRNA1/", 
+            # state 5
+            lambda: KinnLayer(kinn_dir="outputs/2022-05-30/KINN-wtCas9_cleave_rate_log-uniform-5-rep2-gRNA1/", 
                 manager_kws={'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(x, 10**-7, 10**-1))/np.log(10), name="output")},
                 channels=np.arange(4,13),
                 name="kinn_u51"),
@@ -233,7 +238,8 @@ def get_model_space_kinn():
                 manager_kws={'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(x, 10**-7, 10**-1))/np.log(10), name="output")},
                 channels=np.arange(4,13),
                 name="kinn_u52"),
-            lambda: KinnLayer(kinn_dir="outputs/2022-05-30/KINN-wtCas9_cleave_rate_log-uniform-5-rep2-gRNA2/", 
+            # state 6
+            lambda: KinnLayer(kinn_dir="outputs/2022-05-30/KINN-wtCas9_cleave_rate_log-uniform-6-rep2-gRNA1/", 
                 manager_kws={'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(x, 10**-7, 10**-1))/np.log(10), name="output")},
                 channels=np.arange(4,13),
                 name="kinn_u61"),
@@ -418,6 +424,8 @@ if __name__ == '__main__':
 
 amb = amber_app(wd="outputs/test_tl_amber")
 amb.manager.verbose = 1
+#arc = [3,0,3,1,1,2,0,2]
+#amb.manager.get_rewards(0, arc)
 amb.run()
 
 """
