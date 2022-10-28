@@ -25,7 +25,6 @@ import scipy.stats as ss
 from sklearn.model_selection import train_test_split
 from tensorflow.keras.optimizers import Adam
 import argparse
-import pickle
 from src.data import load_finkelstein_data as get_data
 
 # since tf 1.15 does not have multi-head attention officially implemented..
@@ -219,10 +218,13 @@ class AttentionPooling(tf.keras.layers.Layer):
             )
             self.attn_type = 'tf'
         except AttributeError:
-            self.attention = MultiHeadAttention(
-                head_num=self.num_heads,
-                input_shape=input_shape
-            )
+            self.attention = tf.keras.models.Sequential([
+                MultiHeadAttention(
+                    head_num=self.num_heads,
+                    input_shape=input_shape
+                ),
+                tf.keras.layers.Dropout(self.dropout),
+            ])
             self.attn_type = 'keras-multi-head'
         if self.flatten_op == 'flatten':
             self.flatten = tf.keras.layers.Flatten()
@@ -241,6 +243,15 @@ class AttentionPooling(tf.keras.layers.Layer):
             raise Exception()
         out = self.flatten(out)
         return out
+
+
+def BiDirectional(**kwargs):
+    units = kwargs.get("units", 8)
+    return tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(units, return_sequences=True), name='BiDir%i'%units)
+
+
+def get_kinn_output_node():
+    return tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(x, 10**-7, 10**-1))/np.log(10), name="output")
 
 
 def get_model_space_kinn():
@@ -295,7 +306,9 @@ def get_model_space_kinn():
         else:
             conv_states.append(Operation('conv1d', activation="linear", filters=base_filter, kernel_size=1, name='conv1_lin'))
         # Add Inception Layer; reduce the filter number for each branch to match complexity
-        conv_states.append(lambda: InceptionLayer(filters=[f//len(param_list[i]) for f in fs], kernel_sizes=ks, dilation_rates=ds, name='inception_%i'%i))
+        conv_states.append(
+            Operation("InceptionLayer", filters=[f//len(param_list[i]) for f in fs], kernel_sizes=ks, dilation_rates=ds, name=f"inception_{conv_seen}")
+        )
 
         state_space.add_layer(conv_seen*2, conv_states)
         if i > 0:
@@ -306,15 +319,15 @@ def get_model_space_kinn():
         if i == len(param_list) - 1:
             bidirectional = [
                 Operation('Identity'),
-                lambda: tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(8, return_sequences=True), name='BiDir8'),
-                lambda: tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(32, return_sequences=True), name='BiDir32'),
+                Operation('BiDirectional', units=8),
+                Operation('BiDirectional', units=32),
             ]
             state_space.add_layer(conv_seen*2-1, bidirectional)
             pool_states = [
                     Operation('Flatten'),
                     Operation('GlobalAvgPool1D'),
-                    lambda: AttentionPooling(flatten_op='flatten', name='AtnFlat'),
-                    lambda: AttentionPooling(flatten_op='gap', name='AtnGap')
+                    Operation('AttentionPooling', flatten_op='flatten', dropout=0.2, name='AtnFlat'),
+                    #Operation('AttentionPooling', flatten_op='gap', dropout=0.1, name='AtnGap')
                 ]
             state_space.add_layer(conv_seen*2, pool_states)
         else:
@@ -331,36 +344,36 @@ def get_model_space_kinn():
     # Add final KINN layer.
     state_space.add_layer(conv_seen*2+1, [
             # state 4
-            lambda: KinnLayer(
+            Operation("KinnLayer",
                 kinn_dir="outputs/2022-05-21/KINN-wtCas9_cleave_rate_log-finkelstein-0-rep4-gRNA1/", 
-                manager_kws={'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(x, 10**-7, 10**-1))/np.log(10), name="output")},
+                manager_kws={'output_op': get_kinn_output_node},
                 channels=np.arange(4,13),
                 name="kinn_f41"),
-            lambda: KinnLayer(
-                kinn_dir="outputs/2022-05-21/KINN-wtCas9_cleave_rate_log-finkelstein-0-rep1-gRNA2/", 
-                manager_kws={'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(x, 10**-7, 10**-1))/np.log(10), name="output")},
+            Operation("KinnLayer",
+                kinn_dir="outputs/2022-05-21/KINN-wtCas9_cleave_rate_log-finkelstein-0-rep5-gRNA2/", 
+                manager_kws={'output_op': get_kinn_output_node},
                 channels=np.arange(4,13),
                 name="kinn_f42"),
             # state 5
-            lambda: KinnLayer(
+            Operation("KinnLayer",
                 kinn_dir="outputs/2022-05-30/KINN-wtCas9_cleave_rate_log-uniform-5-rep2-gRNA1/", 
-                manager_kws={'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(x, 10**-7, 10**-1))/np.log(10), name="output")},
+                manager_kws={'output_op': get_kinn_output_node},
                 channels=np.arange(4,13),
                 name="kinn_u51"),
-            lambda: KinnLayer(
+            Operation("KinnLayer",
                 kinn_dir="outputs/2022-05-30/KINN-wtCas9_cleave_rate_log-uniform-5-rep3-gRNA2/", 
-                manager_kws={'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(x, 10**-7, 10**-1))/np.log(10), name="output")},
+                manager_kws={'output_op': get_kinn_output_node},
                 channels=np.arange(4,13),
                 name="kinn_u52"),
             # state 6
-            lambda: KinnLayer(
+            Operation("KinnLayer",
                 kinn_dir="outputs/2022-05-30/KINN-wtCas9_cleave_rate_log-uniform-6-rep2-gRNA1/", 
-                manager_kws={'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(x, 10**-7, 10**-1))/np.log(10), name="output")},
+                manager_kws={'output_op': get_kinn_output_node},
                 channels=np.arange(4,13),
                 name="kinn_u61"),
-            lambda: KinnLayer(
+            Operation("KinnLayer",
                 kinn_dir="outputs/2022-05-30/KINN-wtCas9_cleave_rate_log-uniform-6-rep2-gRNA2/", 
-                manager_kws={'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(x, 10**-7, 10**-1))/np.log(10), name="output")},
+                manager_kws={'output_op': get_kinn_output_node},
                 channels=np.arange(4,13),
                 name="kinn_u62"),
         ])
@@ -374,10 +387,16 @@ class TransferKinnModelBuilder(ModelBuilder):
         self.input_node = inputs_op[0]
         self.output_node = output_op[0]
         self.model_space = model_space
+        self.custom_objects = {
+            "InceptionLayer".lower(): InceptionLayer, 
+            "KinnLayer".lower(): KinnLayer, 
+            "AttentionPooling".lower(): AttentionPooling,
+            "BiDirectional".lower(): BiDirectional,
+            }
 
     def __call__(self, model_states):
         assert self.model_space is not None
-        inp = get_layer(None, self.input_node)
+        inp = get_layer(None, self.input_node, custom_objects=self.custom_objects)
         x = inp
         for i, state in enumerate(model_states):
             if issubclass(type(state), int) or np.issubclass_(type(state), np.integer):
@@ -391,11 +410,11 @@ class TransferKinnModelBuilder(ModelBuilder):
             # if is KinnLayer, additionally connect the input op to here
             if i == (len(model_states) - 1): # easy way
             #if callable(self.model_space[i][state]) and type(self.model_space[i][state]())is KinnLayer: # no easy way right now
-                x = get_layer([x, inp], op)
+                x = get_layer([x, inp], op, custom_objects=self.custom_objects)
             else:
-                x = get_layer(x, op)
+                x = get_layer(x, op, custom_objects=self.custom_objects)
 
-        out = get_layer(x, self.output_node)
+        out = get_layer(x, self.output_node, custom_objects=self.custom_objects)
         model = tf.keras.models.Model(inputs=inp, outputs=out)
         model_compile_dict = copy.deepcopy(self.model_compile_dict)
         opt = model_compile_dict.pop('optimizer')()
@@ -432,13 +451,17 @@ def amber_app(wd, run=False):
             ]
 
     output_node = [
-            Operation('dense', units=1, activation='sigmoid', name="output_final", kernel_constraint=tf.keras.constraints.NonNeg(),
+            Operation('dense', units=1, activation='sigmoid', name="output_final", 
+            kernel_constraint=tf.keras.constraints.NonNeg(),
+            bias_constraint=tf.keras.constraints.NonNeg(),
             # XXX: this is super important!! if init values are clipped below zero, grads will diminish from sigmoid. FZZ 20221027
             kernel_initializer=tf.keras.initializers.Constant(1.75), bias_initializer=tf.keras.initializers.Constant(3.75)
             )
             ]
 
     model_space, layer_embedding_sharing = get_model_space_kinn()
+    with open(os.path.join(wd, "model_space.pkl"), "wb") as f:
+        pickle.dump((model_space, layer_embedding_sharing), f)
     batch_size = 25000
     use_ppo = False
 
