@@ -12,7 +12,7 @@ import os
 import pickle
 import h5py
 from src.neural_network_builder import KineticNeuralNetworkBuilder
-from src.kinetic_model import KineticModel, modelSpace_to_modelParams
+from src.kinetic_model import KineticModel
 from amber.modeler.dag import get_layer
 from amber.modeler import ModelBuilder
 
@@ -28,6 +28,9 @@ import argparse
 import pickle
 from src.data import load_finkelstein_data as get_data
 
+# since tf 1.15 does not have multi-head attention officially implemented..
+# we use this workaround
+from keras_multi_head import MultiHeadAttention
 
 class KinnLayer(tf.keras.layers.Layer):
     def __init__(self, kinn_dir, manager_kws, kinn_trainable=False, channels=None, *args, **kwargs):
@@ -102,14 +105,12 @@ class KinnLayer(tf.keras.layers.Layer):
             self.rate_contrib_map.append((k, rate_index))
         #assert len(self.rate_contrib_map) == 1
         self.units = rate_contrib_mat.shape[0]
-        self.w = self.add_weight(
-            shape=(input_shape[0][-1], self.units),
-            initializer="random_normal",
-            trainable=True)
-        self.b = self.add_weight(
-            shape=(self.units,),
-            initializer="zeros",
-            trainable=True)
+        self.lin_transform = tf.keras.layers.Dense(
+            units=self.units, activation='linear', 
+            kernel_initializer='zeros',
+            kernel_regularizer=tf.keras.regularizers.L1L2(l1=1e-8, l2=1e-5),
+            input_shape=(input_shape[0][-1],)
+        )
 
         # check for kinn trainability
         for layer in self.kinn_header.layers:
@@ -129,7 +130,7 @@ class KinnLayer(tf.keras.layers.Layer):
         hidden, seq_ohe = inputs[0], inputs[1]
 
         # convert input to delta by linear transformation
-        delta = tf.matmul(hidden, self.w) + self.b
+        delta = self.lin_transform(hidden)
 
         # gather target channels, if necessary
         if self.channels is not None:
@@ -143,12 +144,110 @@ class KinnLayer(tf.keras.layers.Layer):
         return output
 
 
+class InceptionLayer(tf.keras.layers.Layer):
+    def __init__(self, filters, kernel_sizes, dilation_rates=None, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.filters = filters
+        self.kernel_sizes = kernel_sizes
+        assert len(self.filters) == len(self.kernel_sizes), ValueError("different lengths for filters and kernel-sizes")
+        if dilation_rates is None:
+            self.dilation_rates = [1 for _ in self.filters]
+        else:
+            self.dilation_rates = dilation_rates
+            assert len(self.filters) == len(self.dilation_rates), ValueError("different lengths for filters and dilation")
+    
+    def get_config(self):
+        config = super(InceptionLayer, self).get_config()
+        config.update({
+            "filters": self.filters,
+            "kernel_sizes": self.kernel_sizes,
+            "dilation_rates": self.dilation_rates
+        })
+        return config
+    
+    def build(self, input_shape):
+        super().build(input_shape=input_shape)
+        self.conv_branches = []
+        for f, ks, d in zip(*[self.filters, self.kernel_sizes, self.dilation_rates]):
+            self.conv_branches.append(
+                tf.keras.layers.Conv1D(filters=f, kernel_size=ks, padding='same', activation='relu', dilation_rate=d, input_shape=input_shape)
+            )
+
+    def call(self, inputs):
+        convs = [conv_op(inputs) for conv_op in self.conv_branches]
+        layer_out = tf.concat(convs, axis=-1)
+        return layer_out
+
+
+class AttentionPooling(tf.keras.layers.Layer):
+    """Applies attention to the patches extracted form the
+    trunk with the CLS token.
+
+    Args:
+        dimensions: The dimension of the whole architecture.
+        num_classes: The number of classes in the dataset.
+
+    Inputs:
+        Flattened patches from the trunk.
+
+    Outputs:
+        The modifies CLS token.
+    """
+
+    def __init__(self, num_heads=2, dropout=0.2, flatten_op="flatten", **kwargs):
+        super().__init__(**kwargs)
+        self.num_heads = num_heads
+        self.dropout = dropout
+        assert flatten_op in ('flatten', 'gap'), ValueError("flatten_op must be in ('flatten', 'gap')")
+        self.flatten_op = flatten_op
+
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "dropout": self.dropout,
+                "num_heads": self.num_heads,
+                "flatten_op": self.flatten_op,
+            }
+        )
+        return config
+
+    def build(self, input_shape):
+        try:
+            self.attention = tf.keras.layers.MultiHeadAttention(
+                num_heads=self.num_heads, dropout=self.dropout,
+            )
+            self.attn_type = 'tf'
+        except AttributeError:
+            self.attention = MultiHeadAttention(
+                head_num=self.num_heads,
+                input_shape=input_shape
+            )
+            self.attn_type = 'keras-multi-head'
+        if self.flatten_op == 'flatten':
+            self.flatten = tf.keras.layers.Flatten()
+        elif self.flatten_op == 'gap':
+            self.flatten = tf.keras.layers.GlobalAveragePooling1D()
+        else:
+            raise Exception()
+        super().build(input_shape=input_shape)
+
+    def call(self, x):
+        if self.attn_type == 'tf':
+            out = self.attention([x,x])
+        elif self.attn_type == 'keras-multi-head':
+            out = self.attention(x)
+        else:
+            raise Exception()
+        out = self.flatten(out)
+        return out
+
 
 def get_model_space_kinn():
     # Setup and params.
     state_space = ModelSpace()
     default_params = {}
-    base_filter = 32
+    base_filter = 16
     param_list = [
             # Block 1:
             [
@@ -179,15 +278,24 @@ def get_model_space_kinn():
     for i in range(len(param_list)):
         # Build conv states for this layer.
         conv_states = []
+        fs = []
+        ks = []
+        ds = []
         for j in range(len(param_list[i])):
             d = copy.deepcopy(default_params)
             for k, v in param_list[i][j].items():
                 d[k] = v
             conv_states.append(Operation('conv1d', **d))
+            fs.append(d['filters'])
+            ks.append(d['kernel_size'])
+            ds.append(d.get('dilation_rate', 1))
+        # Add a zero Layer
         if conv_seen > 0:
             conv_states.append(Operation('identity'))
         else:
-            conv_states.append(Operation('conv1d', activation="linear", filters=16, kernel_size=1, name='conv1_lin'))
+            conv_states.append(Operation('conv1d', activation="linear", filters=base_filter, kernel_size=1, name='conv1_lin'))
+        # Add Inception Layer; reduce the filter number for each branch to match complexity
+        conv_states.append(lambda: InceptionLayer(filters=[f//len(param_list[i]) for f in fs], kernel_sizes=ks, dilation_rates=ds, name='inception_%i'%i))
 
         state_space.add_layer(conv_seen*2, conv_states)
         if i > 0:
@@ -205,6 +313,8 @@ def get_model_space_kinn():
             pool_states = [
                     Operation('Flatten'),
                     Operation('GlobalAvgPool1D'),
+                    lambda: AttentionPooling(flatten_op='flatten', name='AtnFlat'),
+                    lambda: AttentionPooling(flatten_op='gap', name='AtnGap')
                 ]
             state_space.add_layer(conv_seen*2, pool_states)
         else:
@@ -221,35 +331,40 @@ def get_model_space_kinn():
     # Add final KINN layer.
     state_space.add_layer(conv_seen*2+1, [
             # state 4
-            lambda: KinnLayer(kinn_dir="outputs/2022-05-21/KINN-wtCas9_cleave_rate_log-finkelstein-0-rep4-gRNA1/", 
+            lambda: KinnLayer(
+                kinn_dir="outputs/2022-05-21/KINN-wtCas9_cleave_rate_log-finkelstein-0-rep4-gRNA1/", 
                 manager_kws={'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(x, 10**-7, 10**-1))/np.log(10), name="output")},
                 channels=np.arange(4,13),
                 name="kinn_f41"),
-            lambda: KinnLayer(kinn_dir="outputs/2022-05-21/KINN-wtCas9_cleave_rate_log-finkelstein-0-rep1-gRNA2/", 
+            lambda: KinnLayer(
+                kinn_dir="outputs/2022-05-21/KINN-wtCas9_cleave_rate_log-finkelstein-0-rep1-gRNA2/", 
                 manager_kws={'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(x, 10**-7, 10**-1))/np.log(10), name="output")},
                 channels=np.arange(4,13),
                 name="kinn_f42"),
             # state 5
-            lambda: KinnLayer(kinn_dir="outputs/2022-05-30/KINN-wtCas9_cleave_rate_log-uniform-5-rep2-gRNA1/", 
+            lambda: KinnLayer(
+                kinn_dir="outputs/2022-05-30/KINN-wtCas9_cleave_rate_log-uniform-5-rep2-gRNA1/", 
                 manager_kws={'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(x, 10**-7, 10**-1))/np.log(10), name="output")},
                 channels=np.arange(4,13),
                 name="kinn_u51"),
-            lambda: KinnLayer(kinn_dir="outputs/2022-05-30/KINN-wtCas9_cleave_rate_log-uniform-5-rep3-gRNA2/", 
+            lambda: KinnLayer(
+                kinn_dir="outputs/2022-05-30/KINN-wtCas9_cleave_rate_log-uniform-5-rep3-gRNA2/", 
                 manager_kws={'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(x, 10**-7, 10**-1))/np.log(10), name="output")},
                 channels=np.arange(4,13),
                 name="kinn_u52"),
             # state 6
-            lambda: KinnLayer(kinn_dir="outputs/2022-05-30/KINN-wtCas9_cleave_rate_log-uniform-6-rep2-gRNA1/", 
+            lambda: KinnLayer(
+                kinn_dir="outputs/2022-05-30/KINN-wtCas9_cleave_rate_log-uniform-6-rep2-gRNA1/", 
                 manager_kws={'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(x, 10**-7, 10**-1))/np.log(10), name="output")},
                 channels=np.arange(4,13),
                 name="kinn_u61"),
-            lambda: KinnLayer(kinn_dir="outputs/2022-05-30/KINN-wtCas9_cleave_rate_log-uniform-6-rep2-gRNA2/", 
+            lambda: KinnLayer(
+                kinn_dir="outputs/2022-05-30/KINN-wtCas9_cleave_rate_log-uniform-6-rep2-gRNA2/", 
                 manager_kws={'output_op': lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(x, 10**-7, 10**-1))/np.log(10), name="output")},
                 channels=np.arange(4,13),
                 name="kinn_u62"),
         ])
     return state_space, layer_embedding_sharing
-
 
 
 class TransferKinnModelBuilder(ModelBuilder):
@@ -317,21 +432,24 @@ def amber_app(wd, run=False):
             ]
 
     output_node = [
-            Operation('dense', units=1, activation='sigmoid', name="output_final", kernel_constraint=tf.keras.constraints.NonNeg())
+            Operation('dense', units=1, activation='sigmoid', name="output_final", kernel_constraint=tf.keras.constraints.NonNeg(),
+            # XXX: this is super important!! if init values are clipped below zero, grads will diminish from sigmoid. FZZ 20221027
+            kernel_initializer=tf.keras.initializers.Constant(1.75), bias_initializer=tf.keras.initializers.Constant(3.75)
+            )
             ]
 
     model_space, layer_embedding_sharing = get_model_space_kinn()
     batch_size = 25000
     use_ppo = False
 
-    #lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
-    #    initial_learning_rate=0.005,
-    #    decay_steps=int(1000000/batch_size)*20,  # decay lr every 10 epochs
-    #    decay_rate=0.9,
-    #    staircase=True)
+    lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
+        initial_learning_rate=0.005,
+        decay_steps=int(1000000/batch_size)*30,  # decay lr every 30 epochs
+        decay_rate=0.9,
+        staircase=False)
     model_compile_dict = {
         'loss': 'binary_crossentropy',
-        'optimizer': lambda: Adam(lr=0.005),
+        'optimizer': lambda: Adam(learning_rate=lr_schedule),
         'metrics': ['acc', lambda: tf.keras.metrics.AUC(curve='PR')]
     }
 
@@ -351,7 +469,7 @@ def amber_app(wd, run=False):
                 'temperature': 2.0,
                 'tanh_constant': 1.5,
                 'buffer_size': 5,  # FOR RL-NAS
-                'batch_size': 5,
+                'batch_size': 3,
                 'use_ppo_loss': use_ppo
         },
 
@@ -377,7 +495,7 @@ def amber_app(wd, run=False):
             'params': {
                 'epochs': 150,
                 'fit_kwargs': {
-                    'earlystop_patience': 10,
+                    'earlystop_patience': 15,
                     #'max_queue_size': 50,
                     #'workers': 4
                     #"class_weight": {0:1., 1:10.}
