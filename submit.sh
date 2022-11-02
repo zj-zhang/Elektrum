@@ -44,7 +44,7 @@ while getopts 'abcde:h' opt; do
     e)
 	echo "Submit Transfer Learning CNN+KINN"
 	# 5. Amber Transfer Learning CNN+KINN
-	for i in `seq 1 3`; do
+	for i in `seq 1 5`; do
 		sbatch -J TL$i sbatch_AmberTL.sh TL_$i
 	done
 	;;
