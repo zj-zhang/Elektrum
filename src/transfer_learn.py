@@ -555,7 +555,7 @@ class TransferKinnModelBuilder(ModelBuilder):
         return model
 
 
-def amber_app(wd, run=False):
+def amber_app(wd, model_space=None, run=False):
     # First, define the components we need to use
     with h5py.File("data/inVivoData.newValidSplit.h5", "r") as store:
         train_data = store.get("train")["x"][()], store.get("train")["y"][()]
@@ -590,8 +590,11 @@ def amber_app(wd, run=False):
             bias_initializer=tf.keras.initializers.Constant(3.75),
         )
     ]
-
-    model_space, layer_embedding_sharing = get_model_space_kinn()
+    if model_space is not None:
+        with open(model_space, "rb") as f:
+            model_space, layer_embedding_sharing = pickle.load(f)
+    else:
+        model_space, layer_embedding_sharing = get_model_space_kinn()
     with open(os.path.join(wd, "model_space.pkl"), "wb") as f:
         pickle.dump((model_space, layer_embedding_sharing), f)
     batch_size = 25000
@@ -676,9 +679,10 @@ if __name__ == "__main__":
             description="Script for AMBER-search of Single-task runner"
         )
         parser.add_argument("--wd", type=str, help="working directory")
+        parser.add_argument("--model-space", default=None, required=False, type=str, help="filepath to a pre-configured model space pickle file; if None, will use built-in model space")
 
         args = parser.parse_args()
-        amber_app(wd=args.wd, run=True)
+        amber_app(wd=args.wd, model_space=args.model_space, run=True)
 
 # Or, run this in ipython terminal:
 """
