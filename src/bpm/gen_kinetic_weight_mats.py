@@ -89,12 +89,6 @@ def temp_distr(template_str, seq_range, ind_scale=[1., -1.],
     return weight_mat
 
 
-# temp_distr(TEMPLATE_STR, [0, 6], ind_scale=[1.0, -1.0])
-
-
-# %%
-
-
 def nuc_distr(length, ind_scale):
     weight_mat = np.repeat(np.asarray([ind_scale]), length, axis=0)
     return weight_mat
@@ -467,7 +461,7 @@ class KineticModel():
         return contrib_mat
 
     def get_rate_contrib_matrix(self):
-        #return np.loadtxt(
+        # return np.loadtxt(
         #    Path(self.save_str + '_rate_contrib_mat.nptxt'))
         contrib_rate_names = self.model_params['Data']['contrib_rate_names']
         return self.save_rate_contrib_matrix(contrib_rate_names, save=False)
