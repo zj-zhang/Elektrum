@@ -1,31 +1,44 @@
 # %%
+import sys
 from typing import *
 import yaml
+import random
 from pathlib import Path
 import numpy as np
 from pprint import pprint
 from sklearn.preprocessing import OneHotEncoder, LabelEncoder
 import pandas as pd
+from copy import deepcopy
+from kinetic_model_helpers import (gen_pos_weight_mat,
+                                   nuc_distr, sigmoid, make_encoders)
+
+# TODO Say were this is used
+TEMPLATE_TEST = ['T', 'C', 'G', 'G', 'T', 'A', 'G', 'G', 'A', 'T',
+                 'C', 'G', 'T', 'A', 'A', 'G', 'A', 'T', 'A', 'G',
+                 'T', 'A', 'T', 'T', 'C', 'A', 'G', 'G', 'A', 'C',
+                 'C', 'C', 'C', 'G', 'T', 'T', 'A', 'A', 'C', 'C',
+                 'A', 'T', 'T', 'T', 'C', 'G', 'A', 'A', 'A', 'G']
+TEMPLATE_STR = "".join(TEMPLATE_TEST)
 
 
 def modelSpace_to_modelParams(model_arcs):
     """example config from yaml:
-States:
-  - '0'
-  - '1'
-  - '2'
-  - '3'
-Rates:
-  - name: "k_{01}"
-    state_list: ['0', '1']
-    input_range: [5,10]
+    States:
+    - '0'
+    - '1'
+    - '2'
+    - '3'
+    Rates:
+    - name: "k_{01}"
+        state_list: ['0', '1']
+        input_range: [5,10]
 
-  - name: "k_{10}"
-    state_list: ['1', '0']
-    input_range: [10,15]
-Data:
-  contrib_rate_names: ['k_{30}']
-"""
+    - name: "k_{10}"
+        state_list: ['1', '0']
+        input_range: [10,15]
+    Data:
+    contrib_rate_names: ['k_{30}']
+    """
     model_params = {
         'States': set(
             []), 'Rates': [], 'Data': {
@@ -120,6 +133,8 @@ class RateFunc():
 
 
 class Link():
+    """ Simple structure used to derive King-Altman diagrams from Wang algebra """
+
     def __init__(self, rates, states, gid):
         self.rates = rates
         self.states = states
@@ -127,7 +142,7 @@ class Link():
 
 
 class KineticModel():
-    def __init__(self, param_file):
+    def __init__(self, param_file: str):
         """Kinetic model for enzymatic reaction.
 
         Parameters
@@ -155,9 +170,9 @@ class KineticModel():
         self.lab_enc, self.one_enc = make_encoders(
             self.model_params['Input']['values'])
 
-        (self.adj_mat,
-         self.kinetic_mat,
-         self.link_mat,
+        (self.adj_mat,  # Adjacency matrix of states. Binary and symmetric
+         self.kinetic_mat,  # 'Matrix' with all kinetic rate objects
+         self.link_mat,  # 'Matrix' containing link objects
          self.links) = self.make_matrices()
 
         self.links.sort(key=lambda x: x.gid)
@@ -170,13 +185,15 @@ class KineticModel():
         Returns
         -------
         numpy.ndarray
-            [description]
+            Adjacency matrix of states. Binary and symmetric. 
+            N_states x N_states
         [[list]]
-            [description]
+            2D 'matrix' with all kinetic rate objects. 
+            N_states x N_states
         [[list]]
-            [description]
+            2D 'matrix' containing link objects [description]
         [[list]]
-            [description]
+            List of Link objects
 
         """
         n = len(self.states)
@@ -193,7 +210,9 @@ class KineticModel():
             # Adjacency is non-directional in this mehtod
             adj_mat[bsi, esi] = 1
             # Save kinetic matrix for checking reactions later on
-            # FYI Indexing may seem backwards at first but it is not
+            # FYI Indexing may seem backwards at first but it is not.
+            #     Remember that off diagonal terms are the rates contributing
+            #     to the current state.
             kin_mat[esi][bsi] = [rate]
 
             # Created link matrix. This is important for KingAltman method
@@ -225,7 +244,7 @@ class KineticModel():
 
         return adj_mat, kin_mat, link_mat, links
 
-    def get_ohe_from_seq(self, seq):
+    def get_ohe_from_seq(self, seq: Union[str, Sequence, np.ndarray]) -> np.ndarray:
         """Get an one hot encoded matrix for a sequence
 
         Parameters
@@ -254,7 +273,7 @@ class KineticModel():
         seq_ohe = self.get_ohe_from_seq(seq)
         return [rate.get_rate(seq_ohe) for rate in self.rates]
 
-    def get_kinetic_mat_for_seq(self, seq):
+    def get_kinetic_mat_for_seq(self, seq: str):
         n = len(self.states)
         seq_ohe = self.get_ohe_from_seq(seq)
         kin_seq_mat = np.zeros((n, n))
@@ -267,7 +286,7 @@ class KineticModel():
                                           if i == j else rate.get_rate(seq_ohe))
         return np.array(kin_seq_mat)
 
-    def get_activity(self, seq):
+    def get_activity(self, seq: str):
         kin_seq_mat = self.get_kinetic_mat_for_seq(seq)
         # Find the eigenvalues of matrix. Sort in descending size order
         eigvals = sorted(np.linalg.eigvals(kin_seq_mat).tolist(), reverse=True)
@@ -278,31 +297,13 @@ class KineticModel():
                 return e
         raise ValueError("No eigenvalues found?")
 
-    def get_state_occupancy(self, seq):
-        # Find and return the eigenvector that corresponds to largest non-zero eigenvalue
-        # TODO Fix if necessary
-        # kin_seq_mat = self.get_kinetic_mat_for_seq(seq)
-        # # Find the eigenvalues of matrix. Sort in descending size order
-        # eigvals, eigvecs = np.linalg.eig(kin_seq_mat)
-        # eigvals = eigvals.tolist()
-
-        # eigvecs = sorted(eigvecs.T.tolist(),
-        #                  key=lambda x: eigvals.index(x[0]), reverse=True)
-        # eigvals = sorted(eigvals, reverse=True)
-        # for e, v in zip(eigvals, eigvecs):
-        #     # Structure of matrix means all eigenvalues are <= 0
-        #     assert(e <= 0.)
-        #     if e:  # Return the largest non-zero eigenvalue
-        #         return v
-        pass
-
-    def get_mutated_seqs(self, npoints, mut_num=None):
+    def get_mutated_seqs(self, npoints: int, mut_num: int = None, rng: Union[np.random.Generator, None] = None):
         """ Create a list of mutated sequences with the first sequence always
         being the unmutated sequence.
 
         Parameters
         ----------
-        npoints : _type_
+        npoints : int
             number of sequences generated
         mut_num : _type_
             _description_
@@ -312,12 +313,14 @@ class KineticModel():
         _type_
             _description_
         """
+        if not rng:
+            rng = np.random.default_rng()
         seq_length = int(self.model_params['Input']['seq_length'])
         seq_values = self.model_params['Input']['values']
         if not self.template or mut_num is None:
             # Randomly generate array of sequences based off input parameters
-            seq_arr = np.random.choice(seq_values,
-                                       size=(npoints, seq_length))
+            seq_arr = rng.choice(seq_values,
+                                 size=(npoints, seq_length))
             seq_arr[0, :] = np.array(list(self.template))
         elif isinstance(mut_num, list):  # Vary the number of mutations per seq
             temp_seq = list(self.template)
@@ -329,12 +332,12 @@ class KineticModel():
                 opt_dict[key] = [v for v in seq_values if v != key]
 
             for i in range(1, npoints):
-                ind_choice = np.random.choice(len(temp_seq),
-                                              random.choice(mut_num),
-                                              replace=False)
+                ind_choice = rng.choice(len(temp_seq),
+                                        rng.choice(mut_num),
+                                        replace=False)
                 for mut_ind in ind_choice:
                     mut_label = seq_arr[i, mut_ind]
-                    seq_arr[i, mut_ind] = np.random.choice(opt_dict[mut_label])
+                    seq_arr[i, mut_ind] = rng.choice(opt_dict[mut_label])
 
         else:  # Mutate given template
             assert(mut_num != 0)
@@ -382,17 +385,6 @@ class KineticModel():
         """
         seq_arr = self.get_mutated_seqs(npoints, mut_num)
 
-        # data_dict = {
-        #     "seq": [],
-        #     "k_{uo}": [],
-        #     "k_{ou}": [],
-        #     "k_{oi}": [],
-        #     "k_{io}": [],
-        #     "k_{ic}": [],
-        #     "k_{ci}": [],
-        #     "k_{cut}": [],
-        #     'first_eigval': []
-        # }
         data_dict = {
             "seq": [],
             "k_{01}": [],
@@ -404,9 +396,6 @@ class KineticModel():
             "k_{30}": [],
             'first_eigval': []
         }
-
-        # pheno_arr = np.zeros((npoints))
-        # pheno_map_func = eval(pheno_map) if pheno_map else lambda x: x
 
         for i, seq in enumerate(seq_arr):
             data_dict['seq'] += ["".join(seq.tolist())]
@@ -442,7 +431,7 @@ def wang_algebra_sequences(branch_list):
 
 
 class KingAltmanKineticModel(KineticModel):
-    def __init__(self, param_file):
+    def __init__(self, param_file: str):
         """Kinetic model for a steady state enzymatic reaction.
 
         Parameters
@@ -455,7 +444,7 @@ class KingAltmanKineticModel(KineticModel):
         KineticModel.__init__(self, param_file)
 
     def build_ka_patterns(self):
-        """Build a list of state sequences that are used in the King-Altman mehtod."""
+        """Build a list of state sequences that are used in the King-Altman method."""
         rows, cols = self.adj_mat.shape
         node_branch_list = []
         # Build up node branch list with first state cut from the link matrix
@@ -545,10 +534,10 @@ class KingAltmanKineticModel(KineticModel):
 
     def get_ka_pattern_mat(self):
         """ Return a binary matrix that relates rate vector to a term vector
-        t_i = A_{ij} k_j
-         ^      ^ --|  ^------------|
-     term vector   KA matrix     rate vector
-  ( e.g [(k_1 * k_2 * k_3), ...)
+            t_i = A_{ij} k_j
+            ^      ^ --|  ^------------|
+        term vector   KA matrix     rate vector
+        (e.g [(k_1 * k_2 * k_3), ...)
         """
         denom_list = self.get_denominator()
         ka_mat = np.zeros((len(denom_list), len(self.rates)))
@@ -557,8 +546,9 @@ class KingAltmanKineticModel(KineticModel):
                 ka_mat[i, self.rates.index(r)] = 1
         return ka_mat
 
-    def gen_test_data(self, npoints=1000, contrib_rate_names=None,
-                      pheno_map=None, mut_num=None, **kwargs):
+    def gen_test_data(self, npoints: int = 1000, rng_seed: int = 1234,
+                      contrib_rate_names: List = None,
+                      pheno_map: str = None, mut_num: int = None, **kwargs):
         """Generate data in the form of a .csv to train a neural network to predict kinetics based off a sequence.
 
         Parameters
@@ -576,59 +566,36 @@ class KingAltmanKineticModel(KineticModel):
             If negative, all nucleotides will be changed except the
             negative number, by default -1
         """
-        in_params = self.model_params['Input']
         assert(contrib_rate_names)
-        if not self.template or mut_num is None:
-            # Randomly generate array of sequences based off input parameters
-            seq_arr = np.random.choice(in_params['values'],
-                                       size=(npoints, in_params['seq_length']))
-        else:
-            assert(mut_num != 0)
-            temp_seq = list(self.template)
-            # Generate all sequences to
-            seq_arr = np.repeat([temp_seq], npoints, axis=0)
-            mut_num = mut_num if mut_num > 0 else len(temp_seq) - mut_num
 
-            # Make a dictionary of lists with one of the label values removed
-            # so that you can randomly choose from the correct list later when
-            # making mutations
-            opt_dict = {}
-            for key in in_params['values']:
-                opt_dict[key] = [v for v in in_params['values'] if v != key]
-
-            # Choose all indices to mutate for each sequence
-            # ind_choice = np.random.choice(np.arange(len(temp_seq)),
-            #                               size=(npoints, mut_num),
-            #                               replace=False)
-            for i in range(npoints):
-                ind_choice = np.random.choice(len(temp_seq),
-                                              mut_num,
-                                              replace=False)
-                for mut_ind in ind_choice:
-                    mut_label = seq_arr[i, mut_ind]
-                    seq_arr[i, mut_ind] = np.random.choice(opt_dict[mut_label])
-
-        lab_enc, one_enc = make_encoders(in_params['values'])
         # Create occupancy functions for states that contribute to pheno_map
         # based on the list of contrib_rates
         contrib_rates = []
         occupancy_funcs = []
-        for name in contrib_rate_names:
+        for contrib_name in contrib_rate_names:
             for rate in self.rates:
-                if rate.name == name:
+                if rate.name == contrib_name:
                     contrib_rates += [rate]
-                    # Get the pre-transition state of the contributing rate
+                    # Get the beginning state of the contributing rate
                     occupancy_funcs += [
                         self.get_state_occupancy_func(rate.state_list[0])]
 
+        rng = np.random.default_rng(rng_seed)
+        seq_arr = self.get_mutated_seqs(npoints, mut_num, rng)
+
+        rates_arr = np.zeros((npoints, len(self.rates)))
         act_arr = np.zeros((npoints))
         pheno_arr = np.zeros((npoints))
         pheno_map_func = eval(pheno_map) if pheno_map else lambda x: x
 
         for i, seq in enumerate(seq_arr):
-            tmp = lab_enc.transform(seq)
+            tmp = self.lab_enc.transform(seq)
             # one hot encode random sequence i keeping original length
-            seq_ohe = one_enc.transform(tmp.reshape(-1, 1))
+            seq_ohe = self.one_enc.transform(tmp.reshape(-1, 1))
+            # loop over all rates to get associated values for the sequence
+            for j, rate in enumerate(self.rates):
+                rates_arr[i, j] = rate.get_rate(seq_ohe)
+
             # loop over occupancy functions and associated contrib_rates
             for rate, ofunc in zip(contrib_rates, occupancy_funcs):
                 # Get occupancy and multiply by contrib_rate value
@@ -637,9 +604,16 @@ class KingAltmanKineticModel(KineticModel):
             pheno_arr[i] = pheno_map_func(act_arr[i])
 
         # Save phenotype to file
+        seq_list = ["".join(seq) for seq in seq_arr.tolist()]
         comb_arr = np.hstack(
-            (seq_arr, act_arr.reshape(-1, 1), pheno_arr.reshape(-1, 1)))
+            (np.array(seq_list).reshape(-1, 1), rates_arr, act_arr.reshape(-1, 1), pheno_arr.reshape(-1, 1)))
+
         df = pd.DataFrame(comb_arr)
+        df.columns = (['seq'] +
+                      [rate.name for rate in self.rates] +
+                      ['raw_activity'] +
+                      ['phenotype_activity'])
+
         file_name = Path(self.save_str + ('.csv'))
         df.to_csv(file_name)
         self.save_ka_matrix()
@@ -647,7 +621,7 @@ class KingAltmanKineticModel(KineticModel):
 
     def save_ka_matrix(self):
         ka_mat = self.get_ka_pattern_mat()
-        np.savetxt(Path(self.save_str + '_ka_mat.nptxt'), ka_mat)
+        np.savetxt(Path(self.save_str + '_ka_mat.nptxt'), ka_mat, fmt='%d')
 
     def save_rate_contrib_matrix(self, contrib_rate_names, save=True):
         denom_list = self.get_denominator()
@@ -661,11 +635,29 @@ class KingAltmanKineticModel(KineticModel):
                         contrib_mat[i, j] = 1.
         if save is True:
             np.savetxt(Path(self.save_str + '_rate_contrib_mat.nptxt'),
-                       contrib_mat)
+                       contrib_mat, fmt='%d')
         return contrib_mat
 
     def get_rate_contrib_matrix(self):
-        # return np.loadtxt(
-        #    Path(self.save_str + '_rate_contrib_mat.nptxt'))
         contrib_rate_names = self.model_params['Data']['contrib_rate_names']
         return self.save_rate_contrib_matrix(contrib_rate_names, save=False)
+
+
+# Testing
+if __name__ == '__main__':
+
+    kinn = KingAltmanKineticModel(sys.argv[1])
+    kinn.build_ka_patterns()
+    ka_diagrams = kinn.get_denominator()
+
+    for ka_rates in ka_diagrams:
+        print(" ")
+        for r in ka_rates:
+            print(r.name, end=" ")
+    print(" ")
+
+    ka_mat = kinn.get_ka_pattern_mat()
+    print(ka_mat)
+    kinn.gen_test_data(**kinn.model_params['Data'])
+
+# %%

@@ -1,0 +1,81 @@
+# Example of a parameter file
+Title: "test_3"
+Input:
+  seq_length: 50
+  values: ["A", "G", "T", "C"]
+  template: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+States:
+  - "0"
+  - "1"
+  - "2"
+  - "3"
+Rates:
+  - name: "k_{01}"
+    state_list: ["0", "1"]
+    input_range: [5, 10]
+    base_rate: .1 # Rate constant with exact match
+    stat_barrier: 0. # Energy barrier when there is an exact match, units = kBT
+    weight_distr: "nuc_distr(length, ind_scale=[1.0,.1,-.1,-1.0])"
+
+  - name: "k_{10}"
+    state_list: ["1", "0"]
+    input_range: [10, 15]
+    base_rate: .1
+    stat_barrier: 0
+    weight_distr: "nuc_distr(length, ind_scale=[1.0,-.1,-0.1,-1.0,])"
+
+  - name: "k_{12}"
+    state_list: ["1", "2"]
+    input_range: [15, 20]
+    base_rate: .1
+    stat_barrier: 0
+    weight_distr: "nuc_distr(length, ind_scale=[1.0,-1.0,-.1, .1])"
+
+  - name: "k_{21}"
+    state_list: ["2", "1"]
+    input_range: [20, 25]
+    base_rate: .1
+    stat_barrier: 0
+    weight_distr: "nuc_distr(length, ind_scale=[1.0,-1.0,-.1,-.5,])"
+
+  - name: "k_{23}"
+    state_list: ["2", "3"]
+    input_range: [25, 30]
+    base_rate: .1
+    stat_barrier: 0
+    weight_distr: "nuc_distr(length, ind_scale=[1.0,-.1,-.5,-1.0,])"
+
+  - name: "k_{32}"
+    state_list: ["3", "2"]
+    input_range: [30, 35]
+    base_rate: .1
+    stat_barrier: 0
+    weight_distr: "nuc_distr(length, ind_scale=[1.0,-.1,.1,-2.0,])"
+
+  - name: "k_{02}"
+    state_list: ["0", "2"]
+    input_range: [0, 5]
+    base_rate: .1
+    stat_barrier: 0
+    weight_distr: "nuc_distr(length, ind_scale=[1.0,-1.0,-2.0,-.1])"
+
+  - name: "k_{20}"
+    state_list: ["2", "0"]
+    input_range: [40, 45]
+    base_rate: .1
+    stat_barrier: 0
+    weight_distr: "nuc_distr(length, ind_scale=[1.0,-1.0,-.1,.1,])"
+
+  - name: "k_{30}"
+    state_list: ["3", "0"]
+    input_range: [35, 40]
+    base_rate: .1
+    stat_barrier: 0
+    weight_distr: "nuc_distr(length, ind_scale=[1.0,.1,-.1,-1.0])"
+
+Data:
+  rng_seed: 1234
+  npoints: 2000
+  contrib_rate_names: ["k_{30}"]
+  pheno_map: "sigmoid()"
+  mut_num: 2
