@@ -448,14 +448,38 @@ class KineticModel():
         file_name = Path(self.save_str + ('.tsv'))
         df.to_csv(file_name, sep='\t', index=False)
 
+    # """Return a list of lists of all acceptable KA patterns checking
+    # for duplicate states.
+    # https://www.ncbi.nlm.nih.gov/pmc/articles/PMC1484093/
+    # https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2729780
 
-def wang_algebra_sequences(branch_list):
-    """Return a list of lists of all acceptable KA patterns checking
-    for duplicate states. TODO: Reference paper
+    # >>> print(wang_algebra_sequences([[2, 5], [5, 6], [7, 2]]))
+    # [[2, 5, 7], [2, 6, 7], [5, 6, 7], [5, 6, 2]]
+    # """
 
+
+def wang_algebra_sequences(branch_list: List) -> List:
+    """Recursive function to find all KA diagrams using Wang algebra which 
+    automatically checks all duplicate states.
+
+
+    Parameters
+    ----------
+    branch_list : List
+        List of lists of all kinetic rates that go to nodes
+
+    Returns
+    -------
+    List
+        Return a list of lists of all acceptable KA patterns checking
+    for duplicate states.
+
+    Examples
+    --------
     >>> print(wang_algebra_sequences([[2, 5], [5, 6], [7, 2]]))
     [[2, 5, 7], [2, 6, 7], [5, 6, 7], [5, 6, 2]]
     """
+
     assert(len(branch_list) > 0)
     if len(branch_list) == 1:
         return [[state] for state in branch_list[0]]
@@ -470,7 +494,7 @@ def wang_algebra_sequences(branch_list):
 
 
 class KingAltmanKineticModel(KineticModel):
-    def __init__(self, param_file: str):
+    def __init__(self, param_file: Union[str, dict]):
         """Kinetic model for a steady state enzymatic reaction.
 
         Parameters

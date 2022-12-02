@@ -26,6 +26,10 @@ def make_encoders(values: List):
         [description]
     OneHotEncoder
         [description]
+
+    Examples
+    --------
+
     """
     # Create a label encoder that fits the values specified
     lab_enc = LabelEncoder()
@@ -38,13 +42,13 @@ def make_encoders(values: List):
     return lab_enc, one_enc
 
 
-def gen_pos_weight_mat(guide_seq, seq_range, ind_scale=[1., -1.],
-                       label_values=["A", "C", "G", "T"]):
+def gen_pos_weight_mat(guide_seq: str, seq_range: List, ind_scale: List = [1., -1.],
+                       label_values: List = ["A", "C", "G", "T"]) -> np.ndarray:
     """ Make a position weight matrix contribution to rate based on template sequence given
 
     Parameters
     ----------
-    template_str : str
+    guide_seq : str
         String of the guide sequence
     seq_range : list
         Indices that specify the sequence range that contribute to rate
@@ -60,6 +64,8 @@ def gen_pos_weight_mat(guide_seq, seq_range, ind_scale=[1., -1.],
     2D numpy.ndarray
         Position weight matrix that contributes to kinetic rate
 
+    Examples
+    --------
     >>> gen_pos_weight_mat('TCGGTAGGATCGTAAGATAGTATT', [1, 6], ind_scale=[1.0, -1.0])
     array([[-1.,  1., -1., -1.],
            [-1., -1.,  1., -1.],
