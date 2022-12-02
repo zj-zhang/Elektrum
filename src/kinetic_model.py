@@ -9,8 +9,8 @@ from pprint import pprint
 from sklearn.preprocessing import OneHotEncoder, LabelEncoder
 import pandas as pd
 from copy import deepcopy
-from kinetic_model_helpers import (gen_pos_weight_mat,
-                                   nuc_distr, sigmoid, make_encoders)
+from src.kinetic_model_helpers import (gen_pos_weight_mat,
+                                       nuc_distr, sigmoid, make_encoders)
 
 # TODO Say were this is used
 TEMPLATE_TEST = ['T', 'C', 'G', 'G', 'T', 'A', 'G', 'G', 'A', 'T',
@@ -19,6 +19,23 @@ TEMPLATE_TEST = ['T', 'C', 'G', 'G', 'T', 'A', 'G', 'G', 'A', 'T',
                  'C', 'C', 'C', 'G', 'T', 'T', 'A', 'A', 'C', 'C',
                  'A', 'T', 'T', 'T', 'C', 'G', 'A', 'A', 'A', 'G']
 TEMPLATE_STR = "".join(TEMPLATE_TEST)
+
+
+def convert_nn_rate_to_rate_dict(layer_attrs: dict) -> dict:
+    src_st, trg_st = layer_attrs['SOURCE'], layer_attrs['TARGET']
+    input_range = [layer_attrs['RANGE_ST'],
+                   layer_attrs['RANGE_ST'] +
+                   layer_attrs['RANGE_D']]
+    ks = layer_attrs['kernel_size']
+    rate_name = "k_{}{}".format(src_st, trg_st)
+    rate_dict = {
+        'name': rate_name,
+        'state_list': [src_st, trg_st],
+        'input_range': input_range,
+        'kernel_size': ks,
+    }
+    rate_dict.update(**layer_attrs)
+    return rate_dict
 
 
 def modelSpace_to_modelParams(model_arcs):
@@ -37,45 +54,43 @@ def modelSpace_to_modelParams(model_arcs):
         state_list: ['1', '0']
         input_range: [10,15]
     Data:
-    contrib_rate_names: ['k_{30}']
+    - contrib_rate_names: ['k_{30}']
     """
-    model_params = {
-        'States': set(
-            []), 'Rates': [], 'Data': {
+    kinetic_model_params = {
+        'States': set([]),
+        'Rates': [],
+        'Data': {
             'contrib_rate_names': []}}
     states = sorted(set([s for x in model_arcs for s in (
         x.Layer_attributes['SOURCE'], x.Layer_attributes['TARGET'])]))
+    # Create lookup table to place kinetic rates in a sparse matrix.
+    # See comment above definition for 'scatter_nd' variable
     scatter_nd_lookup = {s: i for i, s in enumerate(states)}
     for arc in model_arcs:
         if not arc.Layer_attributes.get('EDGE', True):
             continue
-        s, t = arc.Layer_attributes['SOURCE'], arc.Layer_attributes['TARGET']
-        inp_r = [
-            arc.Layer_attributes['RANGE_ST'],
-            arc.Layer_attributes['RANGE_ST'] +
-            arc.Layer_attributes['RANGE_D']]
-        ks = arc.Layer_attributes['kernel_size']
-        rate_name = "k_{}{}".format(s, t)
-        model_params['States'].add(s)
-        model_params['States'].add(t)
+        rate_dict = convert_nn_rate_to_rate_dict(arc.Layer_attributes,
+                                                 scatter_nd_lookup)
+        src_st, trg_st = rate_dict['state_list']
+        kinetic_model_params['States'].add(src_st)
+        kinetic_model_params['States'].add(trg_st)
+
+        # Scatter a flattened kinetic matrix to a sparse matrix as specified by indices.
         # scatter_nd: source is draining, source->target is increasing
-        scatter_nd = [((scatter_nd_lookup[s], scatter_nd_lookup[s]), -1),
-                      ((scatter_nd_lookup[t], scatter_nd_lookup[s]), +1)]
-        tmp = {
-            'name': rate_name,
-            'state_list': [s, t],
-            'input_range': inp_r,
-            'kernel_size': ks,
-            # if this rate constant is to be scattered in the Kinetic rate Matrix,
-            # what are the indices?
-            'scatter_nd': scatter_nd
-        }
-        tmp.update(**arc.Layer_attributes)
-        model_params['Rates'].append(tmp)
+        # For more on scatter_nd see https://www.tensorflow.org/api_docs/python/tf/scatter_nd
+        scatter_nd = [(
+            (scatter_nd_lookup[src_st],
+             scatter_nd_lookup[src_st]), -1),
+            ((scatter_nd_lookup[trg_st],
+              scatter_nd_lookup[src_st]), +1)]
+        rate_dict['scatter_nd'] = scatter_nd
+
         if arc.Layer_attributes.get('CONTRIB', False):
-            model_params['Data']['contrib_rate_names'].append(rate_name)
-    model_params['States'] = sorted(list(model_params['States']))
-    return model_params
+            kinetic_model_params['Data']['contrib_rate_names'].append(
+                rate_dict['name'])
+    kinetic_model_params['States'] = sorted(
+        list(kinetic_model_params['States']))
+    return kinetic_model_params
 
 
 def modelParams_to_modelSpace(model_params):
@@ -108,12 +123,25 @@ class RateFunc():
             _description_, by default None
         """
 
-        self.__dict__ = params
+        if 'kernel_size' in params:  # TODO Cludge for if we are in modelSpace
+            self.__dict__ = convert_nn_rate_to_rate_dict(params)
+            self.is_nn_rate = True
+        else:
+            self.__dict__ = params
+            self.is_nn_rate = False
+        if not 'stat_barrier' in self.__dict__:
+            self.stat_barrier = 0
+        if not 'base_rate' in self.__dict__:
+            self.base_rate = 1
         self.template = template
         self.mat = self.build_mat()
 
     def build_mat(self):
+        # Length will be used in the weight_distr function
         length = self.input_range[1] - self.input_range[0]
+        if self.is_nn_rate:
+            # TODO This is not the correct position weight matrix
+            return np.zeros((length, 4))
         return eval(self.weight_distr)
 
     def get_log_rate_vec(self, seq):
@@ -142,42 +170,49 @@ class Link():
 
 
 class KineticModel():
-    def __init__(self, param_file: str):
+    def __init__(self, param_file: Union[str, dict]):
         """Kinetic model for enzymatic reaction.
 
         Parameters
         ----------
-        param_file : str
+        param_file : str | dict
             Yaml file that contains all parameters necessary to build kinetic model
             including sequence, state, rate, and output information.
 
         """
 
         self.param_file = param_file
-        with open(Path(param_file)) as yf:
-            self.model_params = yaml.safe_load(yf)
+        # TODO remove this section when we update neural network models
+        if isinstance(param_file, dict):
+            self.model_params = param_file
+            self.title = 'kinetic_model'
+            self.save_str = str(Path.cwd() / self.title)
+            self.template = None
+            self.lab_enc, self.one_enc = make_encoders(["A", "G", "T", "C"])
 
-        self.title = self.model_params['Title']
-        self.save_str = str(Path(param_file).parent / self.title)
+        else:
+            with open(Path(param_file)) as yf:
+                self.model_params = yaml.safe_load(yf)
+            self.title = self.model_params['Title']
+            self.save_str = str(Path(param_file).parent / self.title)
+            self.template = self.model_params['Input'].get('template', None)
+            self.lab_enc, self.one_enc = make_encoders(
+                self.model_params['Input']['values'])
         # States the system can exist in
         self.states = self.model_params['States']
         # Sequence that results in the fastest catalyst rate
-        self.template = self.model_params['Input'].get('template', None)
         self.rates = [RateFunc(rate, self.template)
                       for rate in self.model_params['Rates']]
         self.rate_names = [r.name for r in self.rates]
 
-        self.lab_enc, self.one_enc = make_encoders(
-            self.model_params['Input']['values'])
-
         (self.adj_mat,  # Adjacency matrix of states. Binary and symmetric
          self.kinetic_mat,  # 'Matrix' with all kinetic rate objects
          self.link_mat,  # 'Matrix' containing link objects
-         self.links) = self.make_matrices()
+         self.links) = self.generate_matrices()
 
         self.links.sort(key=lambda x: x.gid)
 
-    def make_matrices(self):
+    def generate_matrices(self):
         """Make adjacency, kinetic, and link matrix to describe the kinetic
         reactions in model and implement the King-Altman method for finding the
         steady state occupancy of the state of the system.
@@ -185,10 +220,10 @@ class KineticModel():
         Returns
         -------
         numpy.ndarray
-            Adjacency matrix of states. Binary and symmetric. 
+            Adjacency matrix of states. Binary and symmetric.
             N_states x N_states
         [[list]]
-            2D 'matrix' with all kinetic rate objects. 
+            2D 'matrix' with all kinetic rate objects.
             N_states x N_states
         [[list]]
             2D 'matrix' containing link objects [description]
@@ -196,55 +231,59 @@ class KineticModel():
             List of Link objects
 
         """
-        n = len(self.states)
-        adj_mat = np.zeros((n, n))
+        n_states = len(self.states)
+        adj_mat = np.zeros((n_states, n_states))
         kin_mat = adj_mat.tolist()
         link_mat = adj_mat.tolist()
         links = []
         already_linked = []
-        gid = 0
+        gid = 0  # Global id
         for rate in self.rates:
-            bs, es = rate.state_list  # beginning state and end state
-            bsi, esi = self.states.index(bs), self.states.index(es)
-            adj_mat[esi, bsi] = 1
+            begin_st, end_st = rate.state_list  # beginning state and end state
+            bs_i, es_i = self.states.index(begin_st), self.states.index(end_st)
+
             # Adjacency is non-directional in this mehtod
-            adj_mat[bsi, esi] = 1
+            adj_mat[bs_i, es_i] = adj_mat[es_i, bs_i] = 1
+
             # Save kinetic matrix for checking reactions later on
             # FYI Indexing may seem backwards at first but it is not.
             #     Remember that off diagonal terms are the rates contributing
             #     to the current state.
-            kin_mat[esi][bsi] = [rate]
+            kin_mat[es_i][bs_i] = [rate]
 
             # Created link matrix. This is important for KingAltman method
             if rate.name not in already_linked:
                 reverse_rate = False
-                for rrate in self.rates:
-                    if rrate.state_list[0] == es and rrate.state_list[1] == bs:
-                        reverse_rate = rrate
+                for pos_rev_rate in self.rates:
+                    # Indices are swapped
+                    if (pos_rev_rate.state_list[0] == end_st
+                            and pos_rev_rate.state_list[1] == begin_st):
+                        reverse_rate = pos_rev_rate
                         break
                 # Make a new link
                 if not reverse_rate:
-                    link_mat[bsi][esi] = Link([rate], (bs, es), gid)
-                    link_mat[esi][bsi] = link_mat[bsi][esi]
+                    link_mat[bs_i][es_i] = Link(
+                        [rate], (begin_st, end_st), gid)
+                    link_mat[es_i][bs_i] = link_mat[bs_i][es_i]
                 else:
-                    link_mat[bsi][esi] = Link(
-                        (rate, reverse_rate), (bs, es), gid)
-                    link_mat[esi][bsi] = link_mat[bsi][esi]
+                    link_mat[bs_i][es_i] = Link(
+                        (rate, reverse_rate), (begin_st, end_st), gid)
+                    link_mat[es_i][bs_i] = link_mat[bs_i][es_i]
                     already_linked += [reverse_rate]
-                links += [link_mat[bsi][esi]]
+                links += [link_mat[bs_i][es_i]]
                 gid += 1
 
         # Add rates to the diagnol of the kinetic matrix
         # Need to remember to give negative value to the diagnols later
-        for j in range(n):
+        for j in range(n_states):
             kin_mat[j][j] = []
-            for i in range(n):
+            for i in range(n_states):
                 if kin_mat[i][j] and i != j:
                     kin_mat[j][j] += kin_mat[i][j]
 
         return adj_mat, kin_mat, link_mat, links
 
-    def get_ohe_from_seq(self, seq: Union[str, Sequence, np.ndarray]) -> np.ndarray:
+    def generate_ohe_from_seq(self, seq: Union[str, Sequence, np.ndarray]) -> np.ndarray:
         """Get an one hot encoded matrix for a sequence
 
         Parameters
@@ -261,7 +300,7 @@ class KineticModel():
         # one hot encode random sequence i keeping original length
         return self.one_enc.transform(lab_tmp.reshape(-1, 1))
 
-    def get_rate_list_for_seq(self, seq):
+    def generate_rate_list_for_seq(self, seq):
         """Get a list of rates given an array of labels
 
         Parameters
@@ -270,12 +309,12 @@ class KineticModel():
             Array of n different classes to classify as a number
         """
         # one hot encode random sequence i keeping original length
-        seq_ohe = self.get_ohe_from_seq(seq)
+        seq_ohe = self.generate_ohe_from_seq(seq)
         return [rate.get_rate(seq_ohe) for rate in self.rates]
 
     def get_kinetic_mat_for_seq(self, seq: str):
         n = len(self.states)
-        seq_ohe = self.get_ohe_from_seq(seq)
+        seq_ohe = self.generate_ohe_from_seq(seq)
         kin_seq_mat = np.zeros((n, n))
         for i, krow in enumerate(self.kinetic_mat):
             for j, rate_list in enumerate(krow):
@@ -399,7 +438,7 @@ class KineticModel():
 
         for i, seq in enumerate(seq_arr):
             data_dict['seq'] += ["".join(seq.tolist())]
-            seq_ohe = self.get_ohe_from_seq(seq)
+            seq_ohe = self.generate_ohe_from_seq(seq)
             for rate in self.rates:
                 data_dict[rate.name] += [rate.get_rate(seq_ohe)]
 
@@ -412,7 +451,7 @@ class KineticModel():
 
 def wang_algebra_sequences(branch_list):
     """Return a list of lists of all acceptable KA patterns checking
-    for duplicate states.
+    for duplicate states. TODO: Reference paper
 
     >>> print(wang_algebra_sequences([[2, 5], [5, 6], [7, 2]]))
     [[2, 5, 7], [2, 6, 7], [5, 6, 7], [5, 6, 2]]
@@ -442,6 +481,7 @@ class KingAltmanKineticModel(KineticModel):
 
         """
         KineticModel.__init__(self, param_file)
+        self.build_ka_patterns()
 
     def build_ka_patterns(self):
         """Build a list of state sequences that are used in the King-Altman method."""

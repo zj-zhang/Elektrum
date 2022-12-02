@@ -68,10 +68,10 @@ def gen_pos_weight_mat(guide_seq, seq_range, ind_scale=[1., -1.],
            [ 1., -1., -1., -1.]])
     """
     assert(guide_seq)
-    temp_seq = list(guide_seq)[seq_range[0]:seq_range[1]]
+    template_seq = list(guide_seq)[seq_range[0]:seq_range[1]]
 
     lab_enc, one_enc = make_encoders(label_values)
-    tmp = lab_enc.transform(temp_seq)
+    tmp = lab_enc.transform(template_seq)
     # one hot encode section of the guide sequence
     seq_ohe = one_enc.transform(tmp.reshape(-1, 1))
     # Set all weight values equal to lower contributing weight.
@@ -79,15 +79,15 @@ def gen_pos_weight_mat(guide_seq, seq_range, ind_scale=[1., -1.],
     #   columns equal to the number of label values
     weight_mat = np.repeat(
         np.asarray([[float(ind_scale[1])] * len(label_values)]),
-        len(temp_seq), axis=0)
+        len(template_seq), axis=0)
     # Add back lower weight and higher contributing weight but only for
     # the nucleotides that match the templated string
     weight_mat += seq_ohe[...] * float(ind_scale[0] - ind_scale[1])
     return weight_mat
 
 
-def nuc_distr(length, ind_scale):
-    weight_mat = np.repeat(np.asarray([ind_scale]), length, axis=0)
+def nuc_distr(rate_dep_range, ind_scale):
+    weight_mat = np.repeat(np.asarray([ind_scale]), rate_dep_range, axis=0)
     return weight_mat
 
 

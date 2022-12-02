@@ -12,7 +12,7 @@ import os
 import pickle
 import h5py
 from src.neural_network_builder import KineticNeuralNetworkBuilder
-from src.kinetic_model import KineticModel
+from src.kinetic_model import KineticModel, KingAltmanKineticModel
 from amber.modeler.dag import get_layer
 from amber.modeler import ModelBuilder
 
@@ -48,7 +48,10 @@ class KinnLayer(tf.keras.layers.Layer):
         self.kinn_layers = {}
         self.mb = None
         # get default session to feed model builder
-        self.session = tf.keras.backend.get_session()
+        try:
+            self.session = tf.keras.backend.get_session()
+        except:
+            self.session = tf.compat.v1.keras.backend.get_session()
 
     def get_config(self):
         config = super(KinnLayer, self).get_config()
@@ -81,10 +84,11 @@ class KinnLayer(tf.keras.layers.Layer):
         replace_conv_by_fc = self.manager_kws.get("replace_conv_by_fc", False)
         output_op = self.manager_kws.get("output_op", None)
         with open(
-            os.path.join(self.kinn_dir, "AmberSearchBestModel_config.pkl"), "rb"
+            os.path.join(
+                self.kinn_dir, "AmberSearchBestModel_config.pkl"), "rb"
         ) as f:
             model_params = pickle.load(f)
-        self.bp = KineticModel(model_params)
+        self.bp = KingAltmanKineticModel(model_params)
         self.mb = KineticNeuralNetworkBuilder(
             kinn=self.bp,
             session=self.session,
@@ -145,7 +149,8 @@ class KinnLayer(tf.keras.layers.Layer):
         rate_index = [x[1] for x in self.rate_contrib_map]
         rate_layer = tf.math.exp(tf.gather(rates, rate_index, axis=-1))
         ka_slice = tf.gather(king_altman, k, axis=-1)
-        activity = tf.reduce_prod(rate_layer * ka_slice, axis=-1, keepdims=True)
+        activity = tf.reduce_prod(
+            rate_layer * ka_slice, axis=-1, keepdims=True)
         output = get_layer(x=activity, state=self.output_op, with_bn=False)
         return output
 
@@ -296,7 +301,8 @@ def BiDirectional(**kwargs):
 
 def get_kinn_output_node():
     return tf.keras.layers.Lambda(
-        lambda x: tf.math.log(tf.clip_by_value(x, 10 ** -7, 10 ** -1)) / np.log(10),
+        lambda x: tf.math.log(tf.clip_by_value(
+            x, 10 ** -7, 10 ** -1)) / np.log(10),
         name="output",
     )
 
@@ -389,7 +395,8 @@ def get_model_space_kinn():
         conv_states.append(
             Operation(
                 "InceptionLayer",
-                filters=[base_filter * (2 ** (conv_seen)) // 4 for _ in range(4)],
+                filters=[base_filter * (2 ** (conv_seen)) //
+                         4 for _ in range(4)],
                 kernel_sizes=[1, 3, 3, 5],
                 dilation_rates=[1, 1, 4, 1],
                 name=f"inception_{conv_seen}",
@@ -453,7 +460,7 @@ def get_model_space_kinn():
     state_space.add_layer(
         conv_seen * 2 + 1,
         [
-            Operation("Dense", units=64, activation="relu"), 
+            Operation("Dense", units=64, activation="relu"),
             Operation("Identity"),
         ],
     )
@@ -527,7 +534,8 @@ class TransferKinnModelBuilder(ModelBuilder):
 
     def __call__(self, model_states):
         assert self.model_space is not None
-        inp = get_layer(None, self.input_node, custom_objects=self.custom_objects)
+        inp = get_layer(None, self.input_node,
+                        custom_objects=self.custom_objects)
         x = inp
         for i, state in enumerate(model_states):
             if issubclass(type(state), int) or np.issubclass_(type(state), np.integer):
@@ -544,7 +552,8 @@ class TransferKinnModelBuilder(ModelBuilder):
             else:
                 x = get_layer(x, op, custom_objects=self.custom_objects)
 
-        out = get_layer(x, self.output_node, custom_objects=self.custom_objects)
+        out = get_layer(x, self.output_node,
+                        custom_objects=self.custom_objects)
         model = tf.keras.models.Model(inputs=inp, outputs=out)
         model_compile_dict = copy.deepcopy(self.model_compile_dict)
         opt = model_compile_dict.pop("optimizer")()
@@ -637,7 +646,7 @@ def amber_app(wd, model_space=None, run=False):
             "model_compile_dict": model_compile_dict,
         },
         "knowledge_fn": {"data": None, "params": {}},
-        "reward_fn": {"method": "aupr", "batch_size": batch_size,},
+        "reward_fn": {"method": "aupr", "batch_size": batch_size, },
         "manager": {
             "data": {
                 "train_data": (x_train, y_train),
@@ -679,7 +688,8 @@ if __name__ == "__main__":
             description="Script for AMBER-search of Single-task runner"
         )
         parser.add_argument("--wd", type=str, help="working directory")
-        parser.add_argument("--model-space", default=None, required=False, type=str, help="filepath to a pre-configured model space pickle file; if None, will use built-in model space")
+        parser.add_argument("--model-space", default=None, required=False, type=str,
+                            help="filepath to a pre-configured model space pickle file; if None, will use built-in model space")
 
         args = parser.parse_args()
         amber_app(wd=args.wd, model_space=args.model_space, run=True)
