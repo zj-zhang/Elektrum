@@ -494,7 +494,7 @@ class KingAltmanKineticModel(KineticModel):
             # 2. If unused links still exist, find which ones have rates that end at the beginnings
             #    states of already chosen rates. Repeat process until all links are used
             # 2a. If no rates are found, return an empty list for that pattern
-            rate_prod_list += [self.get_ka_rate_product([state], kap)]
+            rate_prod_list += [self.calc_KA_rate_product([state], kap)]
         # Return a list of rate lists representing rate products removing any
         # empty lists
         return [r for r in rate_prod_list if r]
@@ -503,7 +503,7 @@ class KingAltmanKineticModel(KineticModel):
         """ Denominator is just the sum of all the numerators"""
         return sum([self.get_numerator(state) for state in self.states], [])
 
-    def get_ka_rate_product(self, end_states, link_ids):
+    def calc_KA_rate_product(self, end_states, link_ids):
         """Recursive function that finds the correct direction for links given a KA pattern sequence.
         If no path exists for that pattern because of irreversibility, an empty
         list is returned instead.
@@ -532,7 +532,7 @@ class KingAltmanKineticModel(KineticModel):
             return []
         if len(unused_lids) == 0:
             return rate_list
-        next_rate = self.get_ka_rate_product(new_end_states, unused_lids)
+        next_rate = self.calc_KA_rate_product(new_end_states, unused_lids)
         if not next_rate:
             return []
         return rate_list + next_rate

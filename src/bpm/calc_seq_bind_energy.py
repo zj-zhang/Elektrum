@@ -24,7 +24,7 @@ COMP_PAIR = {
     'T': 'A',
     'C': 'G',
     'G': 'C',
-    'N' : 'N'
+    'N': 'N'
 }
 
 # Units of kcal/mol and at 37C
@@ -111,40 +111,70 @@ def get_seq_bind_energy_list(seq_str, dir_53_flag=True):
     """
     # TODO: Add check to make sure sequence is valid <27-04-21, ARL> #
     # Return an average of everything if nn is undefined / N. 20210429, FZZ
-    bind_energy_list = [INIT_PAIR_ENERGY[seq_str[0]] if seq_str[0] in INIT_PAIR_ENERGY else np.mean(list(INIT_PAIR_ENERGY.values())) ]
+    bind_energy_list = [INIT_PAIR_ENERGY[seq_str[0]] if seq_str[0]
+                        in INIT_PAIR_ENERGY else np.mean(list(INIT_PAIR_ENERGY.values()))]
     nn_list = create_pair_list(seq_str)
     nn_energy_dict = SEQ_53_PAIR_ENERGY if dir_53_flag else SEQ_35_PAIR_ENERGY
 
     for nn in nn_list:
         # Return an average of everything if nn is undefined / N. 20210429, FZZ
-        bind_energy_list += [nn_energy_dict[nn] if nn in nn_energy_dict else np.mean(list(nn_energy_dict.values()))]
+        bind_energy_list += [nn_energy_dict[nn]
+                             if nn in nn_energy_dict else np.mean(list(nn_energy_dict.values()))]
 
-    bind_energy_list += [INIT_PAIR_ENERGY[seq_str[-1]] if seq_str[-1] in INIT_PAIR_ENERGY else np.mean(list(INIT_PAIR_ENERGY.values())) ]
+    bind_energy_list += [INIT_PAIR_ENERGY[seq_str[-1]] if seq_str[-1]
+                         in INIT_PAIR_ENERGY else np.mean(list(INIT_PAIR_ENERGY.values()))]
 
     bind_energy_list += [ENERGY_SYM] if is_self_comp(seq_str) else []
 
     return bind_energy_list if dir_53_flag else list(
         reversed(bind_energy_list))
 
+    # """Calculates the free energy of two complementary ssDNA strands forming
+    # a dsDNA helix
 
-def get_seq_bind_energy(seq_str, dir_53_flag=True):
-    """Calculates the free energy of two complementary ssDNA strands forming
-    a dsDNA helix
+    # @param seq_str DNA sequence ex. 'ACTTAGATCCC'
+    # @param dir_53_flag Is the sequence given in the 5'-3' order
+    # @return: List of Gibbs free energy changes
 
-    @param seq_str DNA sequence ex. 'ACTTAGATCCC'
-    @param dir_53_flag Is the sequence given in the 5'-3' order
-    @return: List of Gibbs free energy changes
+    # Sequence with known binding energy
+    # >>> get_seq_bind_energy('CGTTGA')
+    # -5.35
 
-    Sequence with known binding energy
+    # Self-complementary sequence
+    # >>> round(get_seq_bind_energy('CTAG'), 2)
+    # -0.75
+
+    # """
+
+
+def get_seq_bind_energy(seq_str: str, is_dir_53=True):
+    """_summary_
+
+    Parameters
+    ----------
+    seq_str : str
+        DNA sequence ex. 'ACTTAGATCCC'
+    is_dir_53 : bool, optional
+        Is the sequence given in the 5'-3' order, by default True
+
+    Returns
+    -------
+    _type_
+        _description_
+
+
+    Examples
+    --------
+    # Sequence with known binding energy
     >>> get_seq_bind_energy('CGTTGA')
     -5.35
 
-    Self-complementary sequence
+    # Self-complementary sequence
     >>> round(get_seq_bind_energy('CTAG'), 2)
     -0.75
 
     """
-    be_list = get_seq_bind_energy_list(seq_str, dir_53_flag)
+    be_list = get_seq_bind_energy_list(seq_str, is_dir_53)
     return sum(be_list)
 
 
