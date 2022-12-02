@@ -10,15 +10,8 @@ from sklearn.preprocessing import OneHotEncoder, LabelEncoder
 import pandas as pd
 from copy import deepcopy
 from src.kinetic_model_helpers import (gen_pos_weight_mat,
-                                       nuc_distr, sigmoid, make_encoders)
-
-# TODO Say were this is used
-TEMPLATE_TEST = ['T', 'C', 'G', 'G', 'T', 'A', 'G', 'G', 'A', 'T',
-                 'C', 'G', 'T', 'A', 'A', 'G', 'A', 'T', 'A', 'G',
-                 'T', 'A', 'T', 'T', 'C', 'A', 'G', 'G', 'A', 'C',
-                 'C', 'C', 'C', 'G', 'T', 'T', 'A', 'A', 'C', 'C',
-                 'A', 'T', 'T', 'T', 'C', 'G', 'A', 'A', 'A', 'G']
-TEMPLATE_STR = "".join(TEMPLATE_TEST)
+                                       nuc_distr, sigmoid,
+                                       make_encoders)
 
 
 def convert_nn_rate_to_rate_dict(layer_attrs: dict) -> dict:
@@ -114,15 +107,16 @@ class RateFunc():
         """
         Initialize a transition rate as a funciton of template sequence given
 
-
         Parameters
         ----------
         params : Dict
             _description_
         template : List, optional
             _description_, by default None
+        
         """
 
+        #TODO Make this more readable so users know what attributes RateFunc has
         if 'kernel_size' in params:  # TODO Cludge for if we are in modelSpace
             self.__dict__ = convert_nn_rate_to_rate_dict(params)
             self.is_nn_rate = True
@@ -137,6 +131,13 @@ class RateFunc():
         self.mat = self.build_mat()
 
     def build_mat(self):
+        """TODO: Add unit tests
+
+        Returns
+        -------
+        _type_
+            _description_
+        """
         # Length will be used in the weight_distr function
         length = self.input_range[1] - self.input_range[0]
         if self.is_nn_rate:
@@ -145,16 +146,42 @@ class RateFunc():
         return eval(self.weight_distr)
 
     def get_log_rate_vec(self, seq):
-        """Equivalent of getting the free energy differences of each nucleotide"""
+        """Equivalent of getting the free energy differences of each nucleotide.
+        TODO: Add unit tests 
+        """
         return - (self.stat_barrier +
                   np.einsum('ij,ij->i', seq, self.mat))
 
     def get_log_rate(self, seq):
+        """TODO: Add unit tests and documentation
+
+        Parameters
+        ----------
+        seq : _type_
+            _description_
+
+        Returns
+        -------
+        _type_
+            _description_
+        """
         bi, ei = self.input_range
         return np.log(self.base_rate) - (
             self.stat_barrier + np.einsum('ij,ij', seq[bi:ei], self.mat))
 
     def get_rate(self, seq):
+        """TODO: Add unit tests and documentation
+
+        Parameters
+        ----------
+        seq : _type_
+            _description_
+
+        Returns
+        -------
+        _type_
+            _description_
+        """
         bi, ei = self.input_range
         return self.base_rate * np.exp(
             -(self.stat_barrier + np.einsum('ij,ij', seq[bi:ei], self.mat)))
@@ -166,7 +193,7 @@ class Link():
     def __init__(self, rates, states, gid):
         self.rates = rates
         self.states = states
-        self.gid = gid
+        self.gid = gid # Global id
 
 
 class KineticModel():
@@ -229,6 +256,10 @@ class KineticModel():
             2D 'matrix' containing link objects [description]
         [[list]]
             List of Link objects
+        
+        Examples
+        --------
+        TODO: Add unit tests
 
         """
         n_states = len(self.states)
@@ -290,6 +321,10 @@ class KineticModel():
         ----------
         seq : list, str, ndarray
             Array of n different classes to classify as a number
+        
+        Examples
+        --------
+        TODO: Add unit tests
         """
         tmp_seq = deepcopy(seq)
         if isinstance(seq, list):
@@ -307,12 +342,29 @@ class KineticModel():
         ----------
         seq : list, str, ndarray
             Array of n different classes to classify as a number
+
+        Examples
+        --------
+        TODO: Add unit tests
         """
         # one hot encode random sequence i keeping original length
         seq_ohe = self.generate_ohe_from_seq(seq)
         return [rate.get_rate(seq_ohe) for rate in self.rates]
 
     def get_kinetic_mat_for_seq(self, seq: str):
+        """TODO: Add unit tests and documentation
+
+        Parameters
+        ----------
+        seq : str
+            _description_
+
+        Returns
+        -------
+        _type_
+            _description_
+        """
+
         n = len(self.states)
         seq_ohe = self.generate_ohe_from_seq(seq)
         kin_seq_mat = np.zeros((n, n))
@@ -326,6 +378,23 @@ class KineticModel():
         return np.array(kin_seq_mat)
 
     def get_activity(self, seq: str):
+        """TODO: Add unit tests and documentation
+
+        Parameters
+        ----------
+        seq : str
+            _description_
+
+        Returns
+        -------
+        _type_
+            _description_
+
+        Raises
+        ------
+        ValueError
+            _description_
+        """
         kin_seq_mat = self.get_kinetic_mat_for_seq(seq)
         # Find the eigenvalues of matrix. Sort in descending size order
         eigvals = sorted(np.linalg.eigvals(kin_seq_mat).tolist(), reverse=True)
@@ -351,6 +420,10 @@ class KineticModel():
         -------
         _type_
             _description_
+
+        Examples
+        --------
+        TODO: Add unit tests
         """
         if not rng:
             rng = np.random.default_rng()
@@ -421,6 +494,10 @@ class KineticModel():
         pheno_map : str, optional
             The function used to change activity to an experimentally
             measurable phenotype, by default None
+
+        Examples
+        --------
+        TODO: Add unit tests
         """
         seq_arr = self.get_mutated_seqs(npoints, mut_num)
 
@@ -447,16 +524,6 @@ class KineticModel():
         df = pd.DataFrame.from_dict(data_dict)
         file_name = Path(self.save_str + ('.tsv'))
         df.to_csv(file_name, sep='\t', index=False)
-
-    # """Return a list of lists of all acceptable KA patterns checking
-    # for duplicate states.
-    # https://www.ncbi.nlm.nih.gov/pmc/articles/PMC1484093/
-    # https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2729780
-
-    # >>> print(wang_algebra_sequences([[2, 5], [5, 6], [7, 2]]))
-    # [[2, 5, 7], [2, 6, 7], [5, 6, 7], [5, 6, 2]]
-    # """
-
 
 def wang_algebra_sequences(branch_list: List) -> List:
     """Recursive function to find all KA diagrams using Wang algebra which 
@@ -602,6 +669,8 @@ class KingAltmanKineticModel(KineticModel):
             ^      ^ --|  ^------------|
         term vector   KA matrix     rate vector
         (e.g [(k_1 * k_2 * k_3), ...)
+
+        TODO: Add unit tests
         """
         denom_list = self.get_denominator()
         ka_mat = np.zeros((len(denom_list), len(self.rates)))
@@ -629,6 +698,11 @@ class KingAltmanKineticModel(KineticModel):
             The number of mutations to the template string sequence.
             If negative, all nucleotides will be changed except the
             negative number, by default -1
+        
+        Examples
+        --------
+        TODO: Add unit tests
+
         """
         assert(contrib_rate_names)
 
@@ -688,6 +762,7 @@ class KingAltmanKineticModel(KineticModel):
         np.savetxt(Path(self.save_str + '_ka_mat.nptxt'), ka_mat, fmt='%d')
 
     def save_rate_contrib_matrix(self, contrib_rate_names, save=True):
+        """TODO: Swap with get_rate_contrib_matrix"""
         denom_list = self.get_denominator()
         contrib_mat = np.zeros((len(self.rates), len(denom_list)))
         for i, crate in enumerate(self.rates):
@@ -703,6 +778,13 @@ class KingAltmanKineticModel(KineticModel):
         return contrib_mat
 
     def get_rate_contrib_matrix(self):
+        """TODO: Add documentation and unit tests. Swap with save_rate_contrib_matrix
+
+        Returns
+        -------
+        _type_
+            _description_
+        """
         contrib_rate_names = self.model_params['Data']['contrib_rate_names']
         return self.save_rate_contrib_matrix(contrib_rate_names, save=False)
 

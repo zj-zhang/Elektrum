@@ -1,0 +1,73 @@
+# Example of a parameter file based off CRISPR-Cas9 kinetic model
+Title: "cas9_kinn_deplete"
+Input:
+  seq_length: 50
+  template: "TCGGTAGGATCGTAAGATAGTATTCAGGACCCCGTTAACCATTTCGAAAG"
+  values: ["A", "G", "T", "C"]
+
+States:
+  - "u" # unbound
+  - "o" # open
+  - "i" # intermediate
+  - "c" # closed
+  - "cut" # cut DNA
+Rates:
+  - name: "k_{uo}"
+    state_list: ["u", "o"]
+    input_range: [5, 8]
+    base_rate: .001
+    stat_barrier: 0. # Energy barrier when there is an exact match, units = kBT
+    weight_distr: "gen_pos_weight_mat(self.template, self.input_range, ind_scale=[0., 10.])"
+    # weight_distr: 'nuc_distr(length, ind_scale=[1.0,.1,-.1,-1.0])'
+
+  - name: "k_{ou}"
+    state_list: ["o", "u"]
+    input_range: [8, 10]
+    base_rate: .01
+    stat_barrier: 0
+    weight_distr: "gen_pos_weight_mat(self.template, self.input_range, ind_scale=[0., -5.])"
+  # weight_distr: 'nuc_distr(length, ind_scale=[-.1,.1,1.0,-1.0,])'
+  - name: "k_{oi}"
+    state_list: ["o", "i"]
+    input_range: [10, 14]
+    base_rate: .2
+    stat_barrier: 0.
+    weight_distr: "gen_pos_weight_mat(self.template, self.input_range, ind_scale=[0., 6.])"
+    # weight_distr: 'nuc_distr(length, ind_scale=[.1,1.0,-1.0,-.1,])'
+
+  - name: "k_{io}"
+    state_list: ["i", "o"]
+    input_range: [14, 18]
+    base_rate: .02
+    stat_barrier: 0.
+    weight_distr: "gen_pos_weight_mat(self.template, self.input_range, ind_scale=[0., -5.])"
+    # weight_distr: 'nuc_distr(length, ind_scale=[1.0,-1.0,-.1,.1,])'
+
+  - name: "k_{ic}"
+    state_list: ["i", "c"]
+    input_range: [18, 22]
+    base_rate: 5.
+    stat_barrier: 0
+    weight_distr: "gen_pos_weight_mat(self.template, self.input_range, ind_scale=[0., 7.])"
+    # weight_distr: 'nuc_distr(length, ind_scale=[-1.0,-.1,.1,1.0,])'
+
+  - name: "k_{ci}"
+    state_list: ["c", "i"]
+    input_range: [22, 24]
+    base_rate: .003
+    stat_barrier: 0
+    weight_distr: "gen_pos_weight_mat(self.template, self.input_range, ind_scale=[0., -3.])"
+    # weight_distr: 'nuc_distr(length, ind_scale=[-.1,.1,1.0,-1.0,])'
+
+  - name: "k_{cut}"
+    state_list: ["c", "cut"]
+    input_range: [24, 26]
+    base_rate: 10.
+    stat_barrier: 0
+    weight_distr: "gen_pos_weight_mat(self.template, self.input_range, ind_scale=[0., 1.])"
+    # weight_distr: 'nuc_distr(length, ind_scale=[1.0,.1,-.1,-1.0])'
+Data:
+  npoints: 5000
+  # contrib_rate_names: ["k_{cut}"]
+  # pheno_map: "sigmoid()"
+  mut_num: [1, 2]
