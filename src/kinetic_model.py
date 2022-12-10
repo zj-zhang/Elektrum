@@ -113,10 +113,10 @@ class RateFunc():
             _description_
         template : List, optional
             _description_, by default None
-        
+
         """
 
-        #TODO Make this more readable so users know what attributes RateFunc has
+        # TODO Make this more readable so users know what attributes RateFunc has
         if 'kernel_size' in params:  # TODO Cludge for if we are in modelSpace
             self.__dict__ = convert_nn_rate_to_rate_dict(params)
             self.is_nn_rate = True
@@ -193,11 +193,11 @@ class Link():
     def __init__(self, rates, states, gid):
         self.rates = rates
         self.states = states
-        self.gid = gid # Global id
+        self.gid = gid  # Global id
 
 
 class KineticModel():
-    def __init__(self, param_file: Union[str, dict]):
+    def __init__(self, param_file: Union[str, dict, Path]):
         """Kinetic model for enzymatic reaction.
 
         Parameters
@@ -256,7 +256,7 @@ class KineticModel():
             2D 'matrix' containing link objects [description]
         [[list]]
             List of Link objects
-        
+
         Examples
         --------
         TODO: Add unit tests
@@ -285,16 +285,17 @@ class KineticModel():
             # Created link matrix. This is important for KingAltman method
             if rate.name not in already_linked:
                 reverse_rate = False
-                for pos_rev_rate in self.rates:
+                for possible_rev_rate in self.rates:
                     # Indices are swapped
-                    if (pos_rev_rate.state_list[0] == end_st
-                            and pos_rev_rate.state_list[1] == begin_st):
-                        reverse_rate = pos_rev_rate
+                    if (possible_rev_rate.state_list[0] == end_st
+                            and possible_rev_rate.state_list[1] == begin_st):
+                        reverse_rate = possible_rev_rate
                         break
                 # Make a new link
                 if not reverse_rate:
                     link_mat[bs_i][es_i] = Link(
                         [rate], (begin_st, end_st), gid)
+                    # Why do I need the reverse rate here?
                     link_mat[es_i][bs_i] = link_mat[bs_i][es_i]
                 else:
                     link_mat[bs_i][es_i] = Link(
@@ -321,7 +322,7 @@ class KineticModel():
         ----------
         seq : list, str, ndarray
             Array of n different classes to classify as a number
-        
+
         Examples
         --------
         TODO: Add unit tests
@@ -480,7 +481,7 @@ class KineticModel():
         return seq_arr
 
     def gen_simulated_data(self, npoints=1000, mut_num=None,
-                      pheno_map=None, **kwargs):
+                           pheno_map=None, **kwargs):
         """Generate data in the form of a .csv to train a neural network to predict kinetics based off a sequence.
 
         Parameters
@@ -524,6 +525,7 @@ class KineticModel():
         df = pd.DataFrame.from_dict(data_dict)
         file_name = Path(self.save_str + ('.tsv'))
         df.to_csv(file_name, sep='\t', index=False)
+
 
 def wang_algebra_sequences(branch_list: List) -> List:
     """Recursive function to find all KA diagrams using Wang algebra which 
@@ -680,8 +682,8 @@ class KingAltmanKineticModel(KineticModel):
         return ka_mat
 
     def gen_simulated_data(self, npoints: int = 1000, rng_seed: int = 1234,
-                      contrib_rate_names: List = None,
-                      pheno_map: str = None, mut_num: int = None, **kwargs):
+                           contrib_rate_names: List = None,
+                           pheno_map: str = None, mut_num: int = None, **kwargs):
         """Generate data in the form of a .csv to train a neural network to predict kinetics based off a sequence.
 
         Parameters
@@ -698,7 +700,7 @@ class KingAltmanKineticModel(KineticModel):
             The number of mutations to the template string sequence.
             If negative, all nucleotides will be changed except the
             negative number, by default -1
-        
+
         Examples
         --------
         TODO: Add unit tests

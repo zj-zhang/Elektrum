@@ -1,0 +1,85 @@
+# Example of a parameter file
+Title: "Template"
+Input:
+  seq_length: 50
+  template: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAATGC
+  values: ["A", "T", "G", "C"]
+States:
+  - "0"
+  - "1"
+  - "2"
+  - "3"
+Rates:
+  - name: "k_{01}"
+    state_list: ["0", "1"]
+    input_range: [0, 5]
+    weight_distr: "np.asarray([[1.0, .1, -.1, -1.0],
+      [1.0, .1, -.1, -1.0],
+      [1.0, .1, -.1, -1.0],
+      [1.0, .1, -.1, -1.0],
+      [1.0, .1, -.1, -1.0],
+      ])"
+
+  - name: "k_{10}"
+    state_list: ["1", "0"]
+    input_range: [5, 10]
+    weight_distr: "np.asarray([[-1.0, 1.0, .1, -.1],
+      [-1.0, 1.0, .1, -.1],
+      [-1.0, 1.0, .1, -.1],
+      [-1.0, 1.0, .1, -.1],
+      [-1.0, 1.0, .1, -.1],
+      ])"
+  - name: "k_{12}"
+    state_list: ["1", "2"]
+    input_range: [10, 15]
+    weight_distr: "np.asarray([[-1.0, .1, 1.0, -.1],
+      [-1.0, .1, 1.0, -.1],
+      [-1.0, .1, 1.0, -.1],
+      [-1.0, .1, 1.0, -.1],
+      [-1.0, .1, 1.0, -.1],
+      ])"
+
+  - name: "k_{21}"
+    state_list: ["2", "1"]
+    input_range: [15, 20]
+    weight_distr: "np.asarray([[-1.0, .1, -.1, 1.0],
+      [-1.0, .1, -.1, 1.0],
+      [-1.0, .1, -.1, 1.0],
+      [-1.0, .1, -.1, 1.0],
+      [-1.0, .1, -.1, 1.0],
+      ])"
+
+  - name: "k_{23}"
+    state_list: ["2", "3"]
+    input_range: [20, 25]
+    weight_distr: "np.asarray([[1.0, .1, -.1, -1.0],
+      [-1.0, .1, 1.0, -.1],
+      [1.0, .1, -.1, -1.0],
+      [-1.0, .1, 1.0, -.1],
+      [1.0, .1, -.1, -1.0],
+      ])"
+
+  - name: "k_{32}"
+    state_list: ["3", "2"]
+    input_range: [25, 30]
+    weight_distr: "np.asarray([[-1.0, 1.0, .1, -.1],
+      [-1.0, .1, -.1, 1.0],
+      [-1.0, 1.0, .1, -.1],
+      [-1.0, .1, -.1, 1.0],
+      [-1.0, 1.0, .1, -.1],
+      ])"
+
+  - name: "k_{30}"
+    state_list: ["3", "0"]
+    input_range: [30, 35]
+    weight_distr: "np.asarray([[-1.0, .1, 1.0, -.1],
+      [-1.0, .1, -.1, 1.0],
+      [-1.0, .1, 1.0, -.1],
+      [-1.0, .1, -.1, 1.0],
+      [-1.0, .1, 1.0, -.1],
+      ])"
+Data:
+  npoints: 20000
+  contrib_rate_names: ["k_{30}"]
+  pheno_map: "sigmoid()"
+  mut_num: 4
