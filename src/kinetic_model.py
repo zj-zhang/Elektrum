@@ -207,6 +207,9 @@ class KineticModel():
             including sequence, state, rate, and output information.
 
         """
+        # TODO add flag for neural initialization
+        # TODO Check to make sure kinetic model fails if there is only one state
+        # TODO Check to make sure that the model is fully connected
 
         self.param_file = param_file
         # TODO remove this section when we update neural network models
@@ -232,8 +235,7 @@ class KineticModel():
                       for rate in self.model_params['Rates']]
         self.rate_names = [r.name for r in self.rates]
 
-        (self.adj_mat,  # Adjacency matrix of states. Binary and symmetric
-         self.kinetic_mat,  # 'Matrix' with all kinetic rate objects
+        (self.kinetic_mat,  # 'Matrix' with all kinetic rate objects
          self.link_mat,  # 'Matrix' containing link objects
          self.links) = self.generate_matrices()
 
@@ -263,18 +265,16 @@ class KineticModel():
 
         """
         n_states = len(self.states)
-        adj_mat = np.zeros((n_states, n_states))
-        kin_mat = adj_mat.tolist()
-        link_mat = adj_mat.tolist()
+        tmp_mat = np.zeros((n_states, n_states))
+        kin_mat = tmp_mat.tolist()
+        link_mat = tmp_mat.tolist()
         links = []
         already_linked = []
+
         gid = 0  # Global id
         for rate in self.rates:
             begin_st, end_st = rate.state_list  # beginning state and end state
             bs_i, es_i = self.states.index(begin_st), self.states.index(end_st)
-
-            # Adjacency is non-directional in this mehtod
-            adj_mat[bs_i, es_i] = adj_mat[es_i, bs_i] = 1
 
             # Save kinetic matrix for checking reactions later on
             # FYI Indexing may seem backwards at first but it is not.
@@ -313,7 +313,7 @@ class KineticModel():
                 if kin_mat[i][j] and i != j:
                     kin_mat[j][j] += kin_mat[i][j]
 
-        return adj_mat, kin_mat, link_mat, links
+        return kin_mat, link_mat, links
 
     def generate_ohe_from_seq(self, seq: Union[str, Sequence, np.ndarray]) -> np.ndarray:
         """Get an one hot encoded matrix for a sequence
@@ -562,6 +562,10 @@ def wang_algebra_sequences(branch_list: List) -> List:
     return seq
 
 
+###########################################################
+# King-Altman Section                                     #
+###########################################################
+
 class KingAltmanKineticModel(KineticModel):
     def __init__(self, param_file: Union[str, dict]):
         """Kinetic model for a steady state enzymatic reaction.
@@ -578,12 +582,12 @@ class KingAltmanKineticModel(KineticModel):
 
     def build_ka_patterns(self):
         """Build a list of state sequences that are used in the King-Altman method."""
-        rows, cols = self.adj_mat.shape
+        n_states = len(self.states)
         node_branch_list = []
         # Build up node branch list with first state cut from the link matrix
-        for i in range(1, rows):
+        for i in range(1, n_states):  # skip the first row
             node_branch_list += [[]]
-            for j in range(cols):  # skip the first column
+            for j in range(n_states):
                 if self.link_mat[i][j] != 0:
                     node_branch_list[-1] += [self.link_mat[i][j].gid]
 
