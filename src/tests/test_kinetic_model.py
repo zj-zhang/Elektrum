@@ -10,3 +10,11 @@ TEMPLATE_TEST = ['T', 'C', 'G', 'G', 'T', 'A', 'G', 'G', 'A', 'T',
                  'C', 'C', 'C', 'G', 'T', 'T', 'A', 'A', 'C', 'C',
                  'A', 'T', 'T', 'T', 'C', 'G', 'A', 'A', 'A', 'G']
 TEMPLATE_STR = "".join(TEMPLATE_TEST)
+
+VALID_ADJ_SEQ_MAT = []
+VALID_KINETIC_SEQ_MAT = []
+
+# TODO paramertize this function
+def test_seq_kinetic_model(arg):
+    #TODO test 
+    pass

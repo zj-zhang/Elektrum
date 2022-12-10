@@ -479,7 +479,7 @@ class KineticModel():
 
         return seq_arr
 
-    def gen_test_data(self, npoints=1000, mut_num=None,
+    def gen_simulated_data(self, npoints=1000, mut_num=None,
                       pheno_map=None, **kwargs):
         """Generate data in the form of a .csv to train a neural network to predict kinetics based off a sequence.
 
@@ -679,7 +679,7 @@ class KingAltmanKineticModel(KineticModel):
                 ka_mat[i, self.rates.index(r)] = 1
         return ka_mat
 
-    def gen_test_data(self, npoints: int = 1000, rng_seed: int = 1234,
+    def gen_simulated_data(self, npoints: int = 1000, rng_seed: int = 1234,
                       contrib_rate_names: List = None,
                       pheno_map: str = None, mut_num: int = None, **kwargs):
         """Generate data in the form of a .csv to train a neural network to predict kinetics based off a sequence.
@@ -743,10 +743,10 @@ class KingAltmanKineticModel(KineticModel):
 
         # Save phenotype to file
         seq_list = ["".join(seq) for seq in seq_arr.tolist()]
-        comb_arr = np.hstack(
+        combined_arr = np.hstack(
             (np.array(seq_list).reshape(-1, 1), rates_arr, act_arr.reshape(-1, 1), pheno_arr.reshape(-1, 1)))
 
-        df = pd.DataFrame(comb_arr)
+        df = pd.DataFrame(combined_arr)
         df.columns = (['seq'] +
                       [rate.name for rate in self.rates] +
                       ['raw_activity'] +
@@ -804,6 +804,6 @@ if __name__ == '__main__':
 
     ka_mat = kinn.get_ka_pattern_mat()
     print(ka_mat)
-    kinn.gen_test_data(**kinn.model_params['Data'])
+    kinn.gen_simulated_data(**kinn.model_params['Data'])
 
 # %%
