@@ -1,6 +1,8 @@
 #!/bin/bash
 #SBATCH --nodes 1
-#SBATCH --gres=gpu:v100-32gb:1
+##SBATCH --gpus=v100-32gb:1
+#SBATCH --gpus=1
+#SBATCH --constraint=v100-32gb
 #SBATCH --partition=gpu
 ##SBATCH --partition=ccb
 #SBATCH -c 12 --mem=64gb
