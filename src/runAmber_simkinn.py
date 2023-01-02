@@ -139,14 +139,20 @@ def main():
                 batch_size=1,    # batch size does not matter in this case; all arcs will be retrieved
                 ewa_beta=0.0     # ewa_beta approximates the moving average over 1/(1-ewa_beta) prev points
             )
-    res = get_data(fp=args.data_file, logbase=args.logbase, noise_sigma=args.noise_sigma)
-    # unpack data tuple
+    res = get_data(fp=args.data_file, 
+                   logbase=args.logbase, 
+                   noise_sigma=args.noise_sigma)
     (x_train, y_train), (x_test, y_test) = res
+    
     logbase = args.logbase
+    # TODO What is the difference between these too
     if args.use_sink_state:
-        output_op = lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(tf.reshape(- x[:,1], (-1,1)), 10**-16, 10**3))/np.log(logbase), name="output_slice")
+        output_op = lambda: tf.keras.layers.Lambda(lambda x: 
+            tf.math.log(tf.clip_by_value(tf.reshape(- x[:,1], (-1,1)), 10**-16, 10**3))/np.log(logbase), 
+            name="output_slice")
     else:
-        output_op = lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(x, 10**-16, 10**3))/np.log(logbase), name="output_log")
+        output_op = lambda: tf.keras.layers.Lambda(lambda x: tf.math.log(tf.clip_by_value(x, 10**-16, 10**3))/np.log(logbase), 
+                                                   name="output_log")
     # trainEnv parameters
     evo_params = dict(
         model_fn = KineticEigenModelBuilder if args.use_sink_state else KineticNeuralNetworkBuilder,
@@ -177,8 +183,8 @@ def main():
         'verbose': 0
     }
     controller, hist, stat_df = search_env(
-        controller=controller,
-        wd=args.wd,
+        neural_search_controller=controller,
+        workdir=args.wd,
         evo_params=evo_params,
         manager_kwargs=manager_kwargs,
         disable_posterior_update=args.disable_posterior

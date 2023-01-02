@@ -114,8 +114,8 @@ def main():
         'verbose': 0
     }
     controller, hist, stat_df = search_env(
-        controller=controller,
-        wd=args.wd,
+        neural_search_controller=controller,
+        workdir=args.wd,
         evo_params=evo_params,
         manager_kwargs=manager_kwargs
     )
