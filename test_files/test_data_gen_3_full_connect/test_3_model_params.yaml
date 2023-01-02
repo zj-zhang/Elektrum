@@ -1,5 +1,5 @@
 # Example of a parameter file
-Title: "test_3"
+Title: "test_3_full_connect"
 Input:
   seq_length: 50
   values: ["A", "G", "T", "C"]
