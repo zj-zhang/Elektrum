@@ -32,7 +32,10 @@ def convert_nn_rate_to_rate_dict(layer_attrs: dict) -> dict:
 
 
 def modelSpace_to_modelParams(model_arcs):
-    """example config from yaml:
+    """Convert a neural network 'model space' to kinetic model parameters.
+
+    Example yaml config file for model:
+
     States:
     - '0'
     - '1'
@@ -56,14 +59,16 @@ def modelSpace_to_modelParams(model_arcs):
             'contrib_rate_names': []}}
     states = sorted(set([s for x in model_arcs for s in (
         x.Layer_attributes['SOURCE'], x.Layer_attributes['TARGET'])]))
+    assert(states)
     # Create lookup table to place kinetic rates in a sparse matrix.
-    # See comment above definition for 'scatter_nd' variable
+    # See comment below definition for 'scatter_nd' variable
     scatter_nd_lookup = {s: i for i, s in enumerate(states)}
     for arc in model_arcs:
         if not arc.Layer_attributes.get('EDGE', True):
             continue
-        rate_dict = convert_nn_rate_to_rate_dict(arc.Layer_attributes,
-                                                 scatter_nd_lookup)
+        rate_dict = convert_nn_rate_to_rate_dict(arc.Layer_attributes)
+
+        # Update the state list
         src_st, trg_st = rate_dict['state_list']
         kinetic_model_params['States'].add(src_st)
         kinetic_model_params['States'].add(trg_st)
@@ -78,15 +83,22 @@ def modelSpace_to_modelParams(model_arcs):
               scatter_nd_lookup[src_st]), +1)]
         rate_dict['scatter_nd'] = scatter_nd
 
+        # Update the rate list
+        kinetic_model_params['Rates'] += [rate_dict]
+
+        # Update the activity contribution list
         if arc.Layer_attributes.get('CONTRIB', False):
             kinetic_model_params['Data']['contrib_rate_names'].append(
                 rate_dict['name'])
+    
+    # Clean up state list
     kinetic_model_params['States'] = sorted(
         list(kinetic_model_params['States']))
     return kinetic_model_params
 
 
 def modelParams_to_modelSpace(model_params):
+    """Convert parameters from a kinetic model to a neural network model space."""
     scatter_nd_lookup = {s: i for i, s in enumerate(model_params['States'])}
     for rate in model_params['Rates']:
         rate['kernel_size'] = 1
