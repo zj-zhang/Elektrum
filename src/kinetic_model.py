@@ -230,6 +230,8 @@ class KineticModel():
                 self.model_params['Input']['values'])
         # States the system can exist in
         self.states = self.model_params['States']
+        assert len(self.states) > 1
+
         # Sequence that results in the fastest catalyst rate
         self.rates = [RateFunc(rate, self.template)
                       for rate in self.model_params['Rates']]
@@ -527,6 +529,10 @@ class KineticModel():
         df.to_csv(file_name, sep='\t', index=False)
 
 
+###########################################################
+# King-Altman Section                                     #
+###########################################################
+
 def wang_algebra_sequences(branch_list: List) -> List:
     """Recursive function to find all KA diagrams using Wang algebra which 
     automatically checks all duplicate states.
@@ -562,10 +568,6 @@ def wang_algebra_sequences(branch_list: List) -> List:
     return seq
 
 
-###########################################################
-# King-Altman Section                                     #
-###########################################################
-
 class KingAltmanKineticModel(KineticModel):
     def __init__(self, param_file: Union[str, dict]):
         """Kinetic model for a steady state enzymatic reaction.
@@ -579,6 +581,9 @@ class KingAltmanKineticModel(KineticModel):
         """
         KineticModel.__init__(self, param_file)
         self.build_ka_patterns()
+
+        contrib_rate_names = self.model_params['Data']['contrib_rate_names']
+        assert len(contrib_rate_names) > 0
 
     def build_ka_patterns(self):
         """Build a list of state sequences that are used in the King-Altman method."""
