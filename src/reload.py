@@ -10,8 +10,9 @@ from amber.utils import run_from_ipython
 import copy
 
 
-def reload_from_dir(wd, manager_kwargs, sess=None, model_fn=None, load_weights=True, verbose=False):
-    # unpack keyword args
+def reload_from_dir(workdir, manager_kwargs, sess=None, model_fn=None, 
+                    load_weights=True, verbose=False):
+    # Unpack parameters for building network
     n_channels = manager_kwargs.get("n_channels", 9)
     n_feats = manager_kwargs.get("n_feats", 25)
     replace_conv_by_fc = manager_kwargs.get("replace_conv_by_fc", False)
@@ -19,7 +20,7 @@ def reload_from_dir(wd, manager_kwargs, sess=None, model_fn=None, load_weights=T
     output_op = manager_kwargs.get("output_op", None)
 
     model_params = pickle.load(
-        open(os.path.join(wd, "AmberSearchBestModel_config.pkl"), "rb"))
+        open(os.path.join(workdir, "AmberSearchBestModel_config.pkl"), "rb"))
     kinn = KingAltmanKineticModel(model_params)
     model_fn = model_fn or KineticNeuralNetworkBuilder
     mb = model_fn(kinn=kinn, session=sess,
@@ -33,7 +34,7 @@ def reload_from_dir(wd, manager_kwargs, sess=None, model_fn=None, load_weights=T
     if load_weights is True:
         if verbose:
             print("loaded searched model")
-        mb.model.load_weights(os.path.join(wd, "AmberSearchBestModel.h5"))
+        mb.model.load_weights(os.path.join(workdir, "AmberSearchBestModel.h5"))
     # mb.model.summary()
     return mb
 
@@ -70,7 +71,7 @@ def retrain_last_layer(wd, manager_kwargs, model_fn, new_output_op, new_name_suf
     """
     manager_kw2 = copy.copy(manager_kwargs)
     manager_kw2['output_op'] = new_output_op
-    kinn = reload_from_dir(wd=wd, manager_kwargs=manager_kw2, model_fn=model_fn,
+    kinn = reload_from_dir(workdir=wd, manager_kwargs=manager_kw2, model_fn=model_fn,
                            load_weights=False, sess=sess)
     if datas is not None:
         (x_train, y_train), (x_test, y_test) = datas
@@ -98,4 +99,4 @@ def retrain_last_layer(wd, manager_kwargs, model_fn, new_output_op, new_name_suf
 
 if __name__ == "__main__" and not run_from_ipython():
     wd = sys.argv[1]
-    reload_from_dir(wd=wd)
+    reload_from_dir(workdir=wd)

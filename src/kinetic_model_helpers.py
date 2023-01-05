@@ -1,14 +1,8 @@
 #!/usr/bin/env python
 
-import yaml
-import random
 from typing import *
-from pathlib import Path
 import numpy as np
-from pprint import pprint
 from sklearn.preprocessing import OneHotEncoder, LabelEncoder
-import pandas as pd
-from copy import deepcopy
 
 
 def make_encoders(values: List):
@@ -36,6 +30,7 @@ def make_encoders(values: List):
     lab_enc.fit(values)
     tmp = lab_enc.transform(values)
     tmp = tmp.reshape(len(tmp), 1)
+
     # Create one hot encoder for the values in sequence
     one_enc = OneHotEncoder(sparse=False)
     _ = one_enc.fit(tmp)

@@ -103,12 +103,12 @@ def predict_on_dataframe(data, is_aligned=True):
     fea = featurize_alignment(alignments, ltidx)
     # load kinn
     sess = tf.Session()
-    kinn_1 = reload_from_dir(wd=config['kinn_1'],
+    kinn_1 = reload_from_dir(workdir=config['kinn_1'],
                              sess=sess,
                              manager_kwargs=manager_kwargs,
                              model_fn=evo_params['model_fn']
                              )
-    kinn_2 = reload_from_dir(wd=config['kinn_2'],
+    kinn_2 = reload_from_dir(workdir=config['kinn_2'],
                              sess=sess,
                              manager_kwargs=manager_kwargs,
                              model_fn=evo_params['model_fn']

@@ -2,6 +2,7 @@
 """
 
 from amber.utils import corrected_tf as tf
+import amber
 import tensorflow as tf2
 from tensorflow.keras.layers import Input, Conv1D, Dense, Concatenate, Lambda, Flatten
 from tensorflow.keras.models import Model
@@ -16,6 +17,8 @@ import numpy as np
 import scipy.stats as ss
 import matplotlib.pyplot as plt
 
+from src.kinetic_model import KineticModel
+
 from amber.modeler.kerasModeler import ModelBuilder
 from amber.modeler.dag import get_layer
 
@@ -27,46 +30,57 @@ class KineticRate(tf.keras.layers.Conv1D):
 
 
 class KineticNeuralNetworkBuilder(ModelBuilder):
-    def __init__(self, kinn, session=None, output_op=None, n_feats=25, n_channels=4, replace_conv_by_fc=False):
-        """convert a kinetic state graph (with state-specific input sequence ranges) to a neural network,
+    def __init__(self, kinn:KineticModel, session:tf.Session=None, 
+                 output_op:Union[amber.architect.Operation, None]=None, 
+                 n_feats=25, n_channels=4, replace_conv_by_fc=False):
+        """Convert a kinetic state graph (with state-specific input sequence ranges) to a neural network,
         whose complexity is specified in rate_pwm_len
 
         Parameters
         ----------
         kinn : KineticModel
+            reference to the biophysics model class
         session : tf.Session
+            underlying session for tensorflow and keras
+        output_op : amber.architect.Operation, or None
+            specific operation for converting activity to phenotype; 
+            if None, will learn from data by a Dense layer
+        n_feats: int
+            TODO What are these related to
         n_channels : int
+            TODO What are these related to
         replace_conv_by_fc : bool
+            TODO What does this do?
 
         Attributes
         ----------
         kinn : KineticModel
-            reference to the biophysics model class
+            Stored kinn
         rate_pwm_len : list
             list of pwm lengths. Together with kinn, the two variable that controls the neural network
         session : tf.Session
-            underlying session for tensorflow and keras
+            Stored session
         output_op : amber.architect.Operation, or None
-            specific operation for converting activity to phenotype; if None, will learn from data by a Dense layer
+            Stored output_op
         model : tf.keras.Model, or None
             keras model passing through the internal objects; will be None before initialized
         layer_dict : dict
             dictionary that maps layer name string to layer objects
         input_ranges : list of tuples
             a tuple of a pair of integers, ordered by the model.inputs
+        traindata : np.ndarray, or None
+        testdata : np.ndarray, or None
 
         """
-        # check kinn; specifies the states and ranges
-        #assert isinstance(kinn, KineticModel)
         self.kinn = kinn
+
         # check rate_mode
         rate_pwm_len = [d.kernel_size for d in self.kinn.rates]
         assert len(rate_pwm_len) == len(self.kinn.rates)
         for pwm_len, rate in zip(*[rate_pwm_len, self.kinn.rates]):
             assert isinstance(pwm_len, int)
-            #assert pwm_len <= rate.input_range[1] - rate.input_range[0], ValueError(
-            #    f"pwm_len {pwm_len} must be smaller than rate input range {rate.input_range[0]} - {rate.input_range[1]}")
         self.rate_pwm_len = rate_pwm_len
+
         # start new session
         self.session = session
         if self.session is None:
@@ -74,6 +88,7 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
         else:
             tf.keras.backend.set_session(self.session)
         self.weight_initializer = 'zeros'
+
         # placeholders
         self.n_feats = n_feats
         self.n_channels = n_channels
@@ -92,6 +107,13 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
         tf.keras.backend.set_session(self.session)
 
     def _build_inputs(self):
+        """TODO what does this do?
+
+        Returns
+        -------
+        _type_
+            _description_
+        """
         inputs_op = {}
         self.input_ranges = []
         for a, b in set([tuple(r.input_range) for r in self.kinn.rates]):
@@ -109,14 +131,18 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
         # build convs --> rates
         rates = []
         for i, rate in enumerate(self.kinn.rates):
+
             seq_range = f"input_{rate.input_range[0]}_{min(self.n_feats-1, rate.input_range[1])}"
             name = "k%i" % i
+
             seq_range_d = min(self.n_feats-1,rate.input_range[1]) - rate.input_range[0]
+
             if self.replace_conv_by_fc: # if replace is True, overwrite the rate dict
                 padding = "valid"
             else:
                 padding = rate.__dict__.get("padding", "valid" if self.replace_conv_by_fc else "same")
             filters = rate.__dict__.get("filters", 1)
+
             conv_rate = Conv1D(filters=filters,
                            kernel_size=(seq_range_d,) if self.replace_conv_by_fc else self.rate_pwm_len[i],
                            activation="linear",
@@ -126,6 +152,7 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
                            name="conv_%s" % name)(
                         inputs_op[seq_range])
             hidden_size = rate.__dict__.get("hidden_size", 0)
+
             if hidden_size == 0:
                 conv_rate = Flatten()(conv_rate)
                 rate = Lambda(lambda x: tf.reduce_sum(x, axis=1, keepdims=True), name="sum_%s" % name)(conv_rate)
@@ -159,10 +186,8 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
             assert np.sum(mask) <= 1, "k=%i, mask error for %s" % (k, mask)
             if np.sum(mask) == 0:
                 continue
-            # print(np.where(mask == 1))
             rate_index = np.where(mask == 1)[0][0]
             rate_layer = rates[rate_index]
-            # print(rate_layer)
             rate_layer = Lambda(
                 lambda x: tf.math.exp(x),
                 name=f'exp_k{rate_index}_{k}')(rate_layer)
@@ -255,6 +280,7 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
         output_act : bool
             if true, use activity (currently hard-coded as column 50) as output; otherwise use phenotype
             (currently hard-coded as column 51) as output
+            Activity will be normalized by max value
         """
         # one-hot encoder
         x_set = [['A'], ['C'], ['G'], ['T']]
@@ -272,7 +298,7 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
             data['obs'] /= data['obs'].max()
         else:
             data['obs'] = data['51']
-        #print(data['obs'].describe())
+
         # split train-test
         gen_df = data
         X_train, X_test, y_train, y_test = train_test_split(
@@ -283,6 +309,7 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
         test_seqs_ohe = []
         for i in range(len(X_test)):
             test_seqs_ohe += [X_test[i]]
+
         # blockify
         input_seqs_ohe = np.array(input_seqs_ohe)
         test_seqs_ohe = np.array(test_seqs_ohe)
@@ -319,7 +346,8 @@ class KineticNeuralNetworkBuilder(ModelBuilder):
 class KineticMatrixLayer(tf.keras.layers.Layer):
     """Custom Layer that converts kinetic rates into a kinetic matrix
     """
-    def __init__(self, num_rates: int, num_states: int, scatter_ind: list, regularize_eigenval_ratio : float, top_k_eigvals=3):
+    def __init__(self, num_rates: int, num_states: int, scatter_ind: list, 
+                 regularize_eigenval_ratio : float, top_k_eigvals=3):
         super().__init__()
         self.num_rates = num_rates
         self.num_states = num_states
@@ -356,7 +384,8 @@ class KineticMatrixLayer(tf.keras.layers.Layer):
 
 
 class KineticEigenModelBuilder(KineticNeuralNetworkBuilder):
-    def __init__(self, kinn, session=None, output_op=None, n_feats=25, n_channels=4, replace_conv_by_fc=False,
+    def __init__(self, kinn, session=None, output_op=None, 
+                 n_feats=25, n_channels=4, replace_conv_by_fc=False,
             regularize_eigenval_ratio=0.001):
         super().__init__(kinn=kinn, session=session, output_op=output_op, n_feats=n_feats, n_channels=n_channels, 
                 replace_conv_by_fc=replace_conv_by_fc)

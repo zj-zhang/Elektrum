@@ -27,7 +27,7 @@ def test_transfer():
     except:
         session = tf.compat.v1.keras.backend.get_session()
     kinn_indep = reload_from_dir(
-        wd="test_files/KINN-finkelstein-gRNA1_test/",
+        workdir="test_files/KINN-finkelstein-gRNA1_test/",
         manager_kwargs={'output_op': lambda: tf.keras.layers.Lambda(
             lambda x: tf.math.log(x)/np.log(10), name="output")},
         sess=session

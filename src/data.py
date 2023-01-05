@@ -24,7 +24,9 @@ def get_sim_deplete_data(fp, seed=111, logbase=None):
     return (x_train, y_train), (x_test, y_test)
 
 
-def load_finkelstein_data(target='wtCas9_cleave_rate_log', make_switch=False, logbase=None, include_ref=False, return_remainder=False):
+def load_finkelstein_data(target='wtCas9_cleave_rate_log', 
+                          make_switch=False, logbase=None, 
+                          include_ref=False, return_remainder=False):
     x = np.load('./test_files/test_data_transfer/compiled_X_1.npy')
     if include_ref is False:
         x = x[:, :, 4:]

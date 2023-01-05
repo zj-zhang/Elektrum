@@ -55,26 +55,14 @@ def test_kinetic_model_init(k_model):
     check_matrix_occupancy(k_model.link_mat, VALID_ADJ_MAT)
     check_matrix_occupancy(k_model.kinetic_mat,
                            VALID_KINETIC_MAT_OCCUPANCY)
-    # Initialize from yaml string
-
-    # Initialize from dictionary
-
-    # Initialize from neural network architecture
-
     pass
 
 
 @pytest.mark.parametrize("k_model", KA_KINETIC_MODELS_TO_TEST)
 def test_ka_kinetic_model_init(k_model):
-
-    # Initialize from yaml string
+    # Initialize from file
     check_matrix_occupancy(k_model.link_mat, VALID_ADJ_MAT)
     check_matrix_occupancy(k_model.kinetic_mat, VALID_KINETIC_MAT_OCCUPANCY)
     npt.assert_array_equal(k_model.get_ka_pattern_mat(), VALID_KA_PATTERN_MAT)
-
-    # Initialize from dictionary
-
-    # Initialize from neural network architecture
-
     pass
 # TODO Add checks for validity of models (number of states, connectedness, contribution rate)
