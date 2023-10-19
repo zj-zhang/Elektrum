@@ -59,7 +59,7 @@ def plot_dataframe(data):
     ax.set_xlabel('KINN log10(cleavage rate)')
     ax.legend(bbox_to_anchor=(1.01, 1), loc='upper left', prop={'size': 10})
     pcc = ss.pearsonr(plot_df['kinn'], np.log10(plot_df['Read']+1))
-    ax.set_title("Positive Set Predictions (OffTargets)\nPearson=%.3f, p=%.3f, n=%i" % (pcc[0], pcc[1], plot_df.shape[0]))
+    ax.set_title("Positive Set Predictions (OffTargets)\nPearson=%.3f, p=%.3e, n=%i" % (pcc[0], pcc[1], plot_df.shape[0]))
     #ax = axs[1,1]
     #sns.scatterplot(x='dcnn', y=np.log10(plot_df.Read+1), hue='sgRNA_type', alpha=0.5, data=plot_df, ax=ax)
     #ax.set_ylabel('log10(Read+1)')
